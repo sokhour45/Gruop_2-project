@@ -1,0 +1,1 @@
+"""Small Warehouse Management System."""
