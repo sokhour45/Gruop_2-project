@@ -15,14 +15,6 @@
       <p class="muted">
         {{ 'Create the first administrator account.' if setup_mode else ('New accounts are registered as employees.' if register_mode else 'Use your warehouse account.') }}
       </p>
-      {% if not setup_mode and not register_mode %}
-        <div class="demo-credentials">
-          <strong>Local demo login</strong>
-          <span>Username: <code>{{ demo_admin_username }}</code></span>
-          <span>Password: <code>{{ demo_admin_password }}</code></span>
-          <small>For local classroom/demo use only. Do not deploy with these credentials.</small>
-        </div>
-      {% endif %}
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
           <div class="flash-stack compact">
@@ -34,10 +26,10 @@
       {% endwith %}
       <form method="post">
         <label>Username</label>
-        <input type="text" name="username" value="{{ username or (demo_admin_username if not setup_mode and not register_mode else '') }}" required>
+        <input type="text" name="username" value="{{ username }}" required>
 
         <label>Password</label>
-        <input type="password" name="password" value="{{ demo_admin_password if not setup_mode and not register_mode else '' }}" required>
+        <input type="password" name="password" required>
 
         {% if setup_mode or register_mode %}
           <label>Confirm password</label>

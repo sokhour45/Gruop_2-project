@@ -108,23 +108,6 @@ class WarehouseDB:
         except sqlite3.IntegrityError as error:
             raise ValueError("That username is already in use.") from error
 
-    def ensure_demo_admin(self, username: str, password: str) -> None:
-        username = username.strip()
-        if not username or len(password) < 8:
-            raise ValueError("A demo admin username and password of at least 8 characters are required.")
-        salt = secrets.token_bytes(16)
-        digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 310_000)
-        password_hash = f"pbkdf2_sha256$310000${salt.hex()}${digest.hex()}"
-        with self._connection() as connection:
-            connection.execute(
-                """INSERT INTO users (username, password_hash, role)
-                VALUES (?, ?, 'admin')
-                ON CONFLICT(username) DO UPDATE SET
-                    password_hash = excluded.password_hash,
-                    role = 'admin'""",
-                (username, password_hash),
-            )
-
     def authenticate_user(self, username: str, password: str) -> User | None:
         with self._connection() as connection:
             row = connection.execute(

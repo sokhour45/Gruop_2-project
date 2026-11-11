@@ -9,9 +9,6 @@ from flask import Flask, flash, redirect, render_template, request, send_file, s
 from warehouse.db import WarehouseDB
 from warehouse.validation import CATEGORIES, UNITS, FieldError, validate_product, validate_movement
 
-DEMO_ADMIN_USERNAME = "admin"
-DEMO_ADMIN_PASSWORD = "admin1234"
-
 
 def create_app() -> Flask:
     base_dir = Path(__file__).resolve().parent
@@ -25,7 +22,6 @@ def create_app() -> Flask:
 
     if not db.has_users():
         db.seed_sample_data()
-    db.ensure_demo_admin(DEMO_ADMIN_USERNAME, DEMO_ADMIN_PASSWORD)
 
     def current_user() -> dict[str, str] | None:
         user = session.get("user")
@@ -71,8 +67,6 @@ def create_app() -> Flask:
             "CATEGORIES": CATEGORIES,
             "UNITS": UNITS,
             "user_roles": ("admin", "manager", "employee"),
-            "demo_admin_username": DEMO_ADMIN_USERNAME,
-            "demo_admin_password": DEMO_ADMIN_PASSWORD,
         }
 
     @app.route("/")
