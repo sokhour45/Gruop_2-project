@@ -1,12 +1,13 @@
-"""SQLite persistence and transactional warehouse operations."""
+"""SQLite and Turso persistence and transactional warehouse operations."""
 
 import sqlite3
 import hashlib
 import hmac
+import os
 import secrets
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Any, Iterable, Iterator
 
 from warehouse.models import Product, Transaction, User
 
@@ -15,29 +16,78 @@ DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "warehouse.db"
 
 
 class WarehouseDB:
-    def __init__(self, path: str | Path = DEFAULT_DB_PATH):
-        self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+    def __init__(self, path: str | Path | None = None):
+        self._turso_url = None
+        self._turso_token = None
+        self._turso_driver = None
+
+        if path is None:
+            database_url = os.environ.get("TURSO_DATABASE_URL")
+            auth_token = os.environ.get("TURSO_AUTH_TOKEN")
+            if database_url or auth_token:
+                if not database_url or not auth_token:
+                    raise RuntimeError(
+                        "Set both TURSO_DATABASE_URL and TURSO_AUTH_TOKEN."
+                    )
+                try:
+                    import turso_serverless
+                except ImportError as error:
+                    raise RuntimeError(
+                        "Install the turso-serverless dependency to use Turso."
+                    ) from error
+                self._turso_url = database_url
+                self._turso_token = auth_token
+                self._turso_driver = turso_serverless
+                self.path = None
+            elif os.environ.get("VERCEL") == "1":
+                raise RuntimeError(
+                    "Vercel requires a persistent database. Configure "
+                    "TURSO_DATABASE_URL and TURSO_AUTH_TOKEN."
+                )
+            else:
+                self.path = DEFAULT_DB_PATH
+        else:
+            self.path = Path(path)
+
+        if self.path is not None:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
         self.initialize()
 
-    def connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path, timeout=10)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
+    def connect(self) -> Any:
+        if self._turso_driver is not None:
+            connection = self._turso_driver.connect(
+                self._turso_url, auth_token=self._turso_token
+            )
+            connection.row_factory = self._row_mapping
+        else:
+            assert self.path is not None
+            connection = sqlite3.connect(self.path, timeout=10)
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys = ON")
         return connection
 
+    @staticmethod
+    def _row_mapping(cursor: Any, row: tuple[object, ...]) -> dict[str, object]:
+        return {
+            column[0]: value
+            for column, value in zip(cursor.description, row)
+        }
+
     @contextmanager
-    def _connection(self) -> Iterator[sqlite3.Connection]:
+    def _connection(self) -> Iterator[Any]:
         connection = self.connect()
         try:
-            with connection:
-                yield connection
+            yield connection
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
         finally:
             connection.close()
 
     def initialize(self) -> None:
         with self._connection() as connection:
-            connection.executescript(
+            for statement in (
                 """
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,7 +96,9 @@ class WarehouseDB:
                     role TEXT NOT NULL DEFAULT 'employee'
                         CHECK (role IN ('admin', 'manager', 'employee')),
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );
+                )
+                """,
+                """
                 CREATE TABLE IF NOT EXISTS products (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     sku TEXT NOT NULL COLLATE NOCASE UNIQUE,
@@ -58,7 +110,9 @@ class WarehouseDB:
                     reorder_level INTEGER NOT NULL CHECK (reorder_level >= 0),
                     supplier TEXT NOT NULL DEFAULT '',
                     location TEXT NOT NULL DEFAULT ''
-                );
+                )
+                """,
+                """
                 CREATE TABLE IF NOT EXISTS transactions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     product_id INTEGER,
@@ -69,9 +123,10 @@ class WarehouseDB:
                     note TEXT NOT NULL DEFAULT '',
                     balance INTEGER NOT NULL CHECK (balance >= 0),
                     timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );
-                """
-            )
+                )
+                """,
+            ):
+                connection.execute(statement)
             columns = {
                 row["name"]
                 for row in connection.execute("PRAGMA table_info(users)").fetchall()
@@ -99,13 +154,16 @@ class WarehouseDB:
         salt = secrets.token_bytes(16)
         digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 310_000)
         password_hash = f"pbkdf2_sha256$310000${salt.hex()}${digest.hex()}"
+        integrity_errors = (sqlite3.IntegrityError,)
+        if self._turso_driver is not None:
+            integrity_errors += (self._turso_driver.IntegrityError,)
         try:
             with self._connection() as connection:
                 connection.execute(
                     "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
                     (username, password_hash, role),
                 )
-        except sqlite3.IntegrityError as error:
+        except integrity_errors as error:
             raise ValueError("That username is already in use.") from error
 
     def authenticate_user(self, username: str, password: str) -> User | None:
@@ -156,7 +214,7 @@ class WarehouseDB:
             connection.execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
 
     @staticmethod
-    def _product(row: sqlite3.Row) -> Product:
+    def _product(row: Any) -> Product:
         return Product(
             id=row["id"],
             sku=row["sku"],
@@ -171,7 +229,7 @@ class WarehouseDB:
         )
 
     @staticmethod
-    def _transaction(row: sqlite3.Row) -> Transaction:
+    def _transaction(row: Any) -> Transaction:
         from datetime import datetime
 
         return Transaction(
@@ -204,6 +262,10 @@ class WarehouseDB:
             rows = connection.execute(sql, params).fetchall()
         return [self._product(row) for row in rows]
 
+    def _begin_transaction(self, connection: Any) -> None:
+        mode = "BEGIN" if self._turso_driver is not None else "BEGIN IMMEDIATE"
+        connection.execute(mode)
+
     def get_product(self, product_id: int) -> Product | None:
         with self._connection() as connection:
             row = connection.execute(
@@ -227,7 +289,7 @@ class WarehouseDB:
     def save_product(self, values: dict[str, object], product_id: int | None = None) -> int:
         connection = self.connect()
         try:
-            connection.execute("BEGIN IMMEDIATE")
+            self._begin_transaction(connection)
             if product_id is None:
                 cursor = connection.execute(
                     """INSERT INTO products
@@ -294,7 +356,7 @@ class WarehouseDB:
     def delete_product(self, product_id: int) -> None:
         connection = self.connect()
         try:
-            connection.execute("BEGIN IMMEDIATE")
+            self._begin_transaction(connection)
             cursor = connection.execute("DELETE FROM products WHERE id = ?", (product_id,))
             if cursor.rowcount != 1:
                 raise LookupError("The product no longer exists.")
@@ -312,7 +374,7 @@ class WarehouseDB:
             raise ValueError("Invalid stock movement.")
         connection = self.connect()
         try:
-            connection.execute("BEGIN IMMEDIATE")
+            self._begin_transaction(connection)
             product = connection.execute(
                 "SELECT * FROM products WHERE id = ?", (product_id,)
             ).fetchone()
@@ -376,7 +438,7 @@ class WarehouseDB:
         )
         connection = self.connect()
         try:
-            connection.execute("BEGIN IMMEDIATE")
+            self._begin_transaction(connection)
             connection.executemany(
                 """INSERT OR IGNORE INTO products
                 (sku, name, category, unit, unit_price, quantity,
