@@ -442,6 +442,29 @@ button.danger-link, .danger-link {
   color: var(--muted);
 }
 
+.demo-credentials {
+  display: grid;
+  gap: 5px;
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 0.9rem;
+}
+
+.demo-credentials code {
+  font-family: Consolas, monospace;
+  font-weight: 700;
+}
+
+.demo-credentials small {
+  margin-top: 3px;
+  color: #475569;
+  line-height: 1.4;
+}
+
 .login-card form {
   display: flex;
   flex-direction: column;

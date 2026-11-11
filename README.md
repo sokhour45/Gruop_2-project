@@ -10,7 +10,12 @@ python main.py
 
 Then open http://127.0.0.1:5000 in a browser.
 
-On first launch, create the administrator account. After that, the app keeps the same warehouse features as the original Python desktop version:
+For local classroom/demo use, the login page displays these administrator credentials:
+
+- Username: `admin`
+- Password: `admin1234`
+
+These are fixed demo credentials and must not be used on a public or production deployment. The app keeps the same warehouse features as the original Python desktop version:
 
 - Dashboard and stock summaries
 - Product management
