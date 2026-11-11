@@ -9,7 +9,7 @@ from warehouse.validation import FieldError, validation_gate
 
 class Screen(ttk.Frame):
     def __init__(self, parent: tk.Misc, app: "WarehouseApp"):
-        super().__init__(parent, padding=18)
+        super().__init__(parent, padding=(28, 24, 28, 28))
         self.app = app
 
     def refresh(self) -> None:
@@ -23,7 +23,7 @@ class Screen(ttk.Frame):
         for key, title, width in columns:
             tree.heading(key, text=title, command=lambda col=key, widget=tree: self.sort_tree(widget, col))
             tree.column(key, width=width, anchor="w")
-        tree.tag_configure("low_stock", background="#ffe1df")
+        tree.tag_configure("low_stock", background="#fff1f2", foreground="#991b1b")
         return tree
 
     @staticmethod
@@ -46,6 +46,7 @@ class ModalForm(tk.Toplevel):
         super().__init__(parent)
         self.app = app
         self.title(title)
+        self.configure(background="#ffffff")
         self.transient(parent.winfo_toplevel())
         self.resizable(False, False)
         self.protocol("WM_DELETE_WINDOW", self.cancel)
@@ -65,7 +66,9 @@ class ModalForm(tk.Toplevel):
     def add_entry(
         self, parent: tk.Misc, row: int, key: str, label: str, value: str = ""
     ) -> ttk.Entry:
-        ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(0, 12), pady=5)
+        ttk.Label(parent, text=label, style="Modal.TLabel").grid(
+            row=row, column=0, sticky="w", padx=(0, 12), pady=5
+        )
         entry = ttk.Entry(parent, width=34)
         entry.grid(row=row, column=1, sticky="ew", pady=5)
         entry.insert(0, value)
@@ -81,7 +84,9 @@ class ModalForm(tk.Toplevel):
         values: Sequence[str],
         selected: str,
     ) -> ttk.Combobox:
-        ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(0, 12), pady=5)
+        ttk.Label(parent, text=label, style="Modal.TLabel").grid(
+            row=row, column=0, sticky="w", padx=(0, 12), pady=5
+        )
         combo = ttk.Combobox(parent, values=values, state="readonly", width=31)
         combo.grid(row=row, column=1, sticky="ew", pady=5)
         if selected:

@@ -18,7 +18,8 @@ class StockMovementScreen(Screen):
         self.rowconfigure(3, weight=1)
         ttk.Label(self, text=self.title, style="Title.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(
-            self, text="Choose a product and enter the movement details in the form."
+            self, text="Choose a product and enter the movement details in the form.",
+            style="CardBody.TLabel"
         ).grid(row=1, column=0, sticky="w", pady=(8, 12))
 
         control_bar = ttk.Frame(self)
@@ -81,9 +82,11 @@ class MovementForm(ModalForm):
             f"{product.sku} - {product.name} (available: {product.quantity})": product
             for product in products
         }
-        frame = ttk.Frame(self, padding=18)
+        frame = ttk.Frame(self, padding=22, style="Modal.TFrame")
         frame.grid(sticky="nsew")
-        ttk.Label(frame, text="Product").grid(row=0, column=0, sticky="w", padx=(0, 12), pady=5)
+        ttk.Label(frame, text="Product", style="Modal.TLabel").grid(
+            row=0, column=0, sticky="w", padx=(0, 12), pady=5
+        )
         self.product_choice = ttk.Combobox(
             frame, values=list(self.product_by_label), state="readonly", width=42
         )
@@ -91,7 +94,7 @@ class MovementForm(ModalForm):
         self.fields["product"] = self.product_choice
         self.add_entry(frame, 1, "quantity", "Quantity", "")
         self.add_entry(frame, 2, "note", "Note (optional)", "")
-        buttons = ttk.Frame(frame)
+        buttons = ttk.Frame(frame, style="Modal.TFrame")
         buttons.grid(row=3, column=0, columnspan=2, sticky="e", pady=(15, 0))
         ttk.Button(buttons, text="Cancel", command=self.cancel).pack(side="right", padx=(8, 0))
         ttk.Button(buttons, text=action, command=self.submit).pack(side="right")

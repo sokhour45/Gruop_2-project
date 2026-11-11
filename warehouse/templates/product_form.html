@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block content %}
+  <div class="page-header">
+    <h1>{{ title }}</h1>
+  </div>
+
+  {% if errors %}
+    <div class="form-errors">
+      {% for error in errors %}
+        <div>{{ error.message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <form method="post" action="{{ action }}" class="form-card">
+    <div class="form-grid">
+      <div class="field-group">
+        <label>SKU</label>
+        <input type="text" name="sku" value="{{ values.get('sku', '') }}" class="{% if errors and errors|selectattr('field','equalto','sku')|list %}error{% endif %}">
+      </div>
+      <div class="field-group">
+        <label>Name</label>
+        <input type="text" name="name" value="{{ values.get('name', '') }}" class="{% if errors and errors|selectattr('field','equalto','name')|list %}error{% endif %}">
+      </div>
+      <div class="field-group">
+        <label>Category</label>
+        <select name="category" class="{% if errors and errors|selectattr('field','equalto','category')|list %}error{% endif %}">
+          <option value="">Select category</option>
+          {% for category in CATEGORIES %}
+            <option value="{{ category }}" {% if values.get('category') == category %}selected{% endif %}>{{ category }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field-group">
+        <label>Unit</label>
+        <select name="unit" class="{% if errors and errors|selectattr('field','equalto','unit')|list %}error{% endif %}">
+          <option value="">Select unit</option>
+          {% for unit in UNITS %}
+            <option value="{{ unit }}" {% if values.get('unit') == unit %}selected{% endif %}>{{ unit }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field-group">
+        <label>Unit price</label>
+        <input type="number" step="0.01" min="0" name="unit_price" value="{{ values.get('unit_price', '') }}" class="{% if errors and errors|selectattr('field','equalto','unit_price')|list %}error{% endif %}">
+      </div>
+      <div class="field-group">
+        <label>Quantity in stock</label>
+        <input type="number" min="0" step="1" name="quantity" value="{{ values.get('quantity', '0') }}" class="{% if errors and errors|selectattr('field','equalto','quantity')|list %}error{% endif %}">
+      </div>
+      <div class="field-group">
+        <label>Reorder level</label>
+        <input type="number" min="0" step="1" name="reorder_level" value="{{ values.get('reorder_level', '0') }}" class="{% if errors and errors|selectattr('field','equalto','reorder_level')|list %}error{% endif %}">
+      </div>
+      <div class="field-group">
+        <label>Supplier</label>
+        <input type="text" name="supplier" value="{{ values.get('supplier', '') }}">
+      </div>
+      <div class="field-group full-width">
+        <label>Location (rack/shelf)</label>
+        <input type="text" name="location" value="{{ values.get('location', '') }}">
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <a href="{{ url_for('products') }}" class="button secondary">Cancel</a>
+      <button type="submit" class="primary">Save</button>
+    </div>
+  </form>
+{% endblock %}

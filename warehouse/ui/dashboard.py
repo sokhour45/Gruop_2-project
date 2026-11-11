@@ -18,7 +18,8 @@ class DashboardScreen(Screen):
             (("products", "Total Products"), ("value", "Total Stock Value"),
              ("low", "Low-Stock Items"))
         ):
-            card = ttk.LabelFrame(metrics, text=label, padding=(12, 10))
+            card = ttk.LabelFrame(metrics, text=label, padding=(16, 14),
+                                  style="Card.TLabelframe")
             card.grid(row=0, column=index, sticky="ew", padx=(0, 12))
             metrics.columnconfigure(index, weight=1)
             value = ttk.Label(card, text="0", style="Metric.TLabel")
@@ -31,13 +32,23 @@ class DashboardScreen(Screen):
         chart_area.columnconfigure(1, weight=1)
         chart_area.rowconfigure(0, weight=1)
 
-        self.category_canvas = tk.Canvas(chart_area, width=320, height=270, bg="#f8fbff",
+        category_card = ttk.LabelFrame(chart_area, text="", style="Card.TLabelframe",
+                                       padding=(10, 8))
+        category_card.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        category_card.columnconfigure(0, weight=1)
+        category_card.rowconfigure(0, weight=1)
+        self.category_canvas = tk.Canvas(category_card, width=320, height=270, bg="#ffffff",
                                         highlightthickness=0)
-        self.category_canvas.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        self.category_canvas.grid(row=0, column=0, sticky="nsew")
         self.category_canvas.bind("<Button-1>", self._select_category)
-        self.status_canvas = tk.Canvas(chart_area, width=320, height=220, bg="#f8fbff",
+        status_card = ttk.LabelFrame(chart_area, text="", style="Card.TLabelframe",
+                                     padding=(10, 8))
+        status_card.grid(row=0, column=1, sticky="nsew")
+        status_card.columnconfigure(0, weight=1)
+        status_card.rowconfigure(0, weight=1)
+        self.status_canvas = tk.Canvas(status_card, width=320, height=220, bg="#ffffff",
                                      highlightthickness=0)
-        self.status_canvas.grid(row=0, column=1, sticky="nsew")
+        self.status_canvas.grid(row=0, column=0, sticky="nsew")
 
         panels = ttk.Frame(self)
         panels.grid(row=3, column=0, sticky="nsew", pady=(14, 0))

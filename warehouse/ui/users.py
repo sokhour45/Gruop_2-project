@@ -12,7 +12,8 @@ class UsersScreen(Screen):
         self.selected_id: int | None = None
         ttk.Label(self, text="User accounts", style="Title.TLabel").pack(anchor="w")
         ttk.Label(
-            self, text="Change roles for registered accounts. New registrations default to employee."
+            self, text="Manage access levels for registered accounts. New registrations default to employee.",
+            style="CardBody.TLabel"
         ).pack(anchor="w", pady=(4, 14))
         actions = ttk.Frame(self)
         actions.pack(fill="x", pady=(0, 10))

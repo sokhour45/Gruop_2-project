@@ -1,0 +1,94 @@
+{% extends 'base.html' %}
+{% block content %}
+  <div class="page-header">
+    <h1>Dashboard</h1>
+  </div>
+
+  <div class="metric-grid">
+    <div class="metric-card">
+      <div class="metric-label">Total Products</div>
+      <div class="metric-value">{{ total_products }}</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Total Stock Value</div>
+      <div class="metric-value">${{ '{:,.2f}'.format(stock_value) }}</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Low-Stock Items</div>
+      <div class="metric-value">{{ low_stock_count }}</div>
+    </div>
+  </div>
+
+  <div class="dashboard-panels">
+    <div class="panel card">
+      <h3>Products by Category</h3>
+      <div class="chart-block">
+        {% for category, count in category_totals.items() %}
+          <div class="bar-row">
+            <span>{{ category }}</span>
+            <div class="bar-track">
+              <div class="bar-fill" style="width: {{ (count / (category_totals.values()|list|max if category_totals else 1)) * 100 }}%"></div>
+            </div>
+            <strong>{{ count }}</strong>
+          </div>
+        {% else %}
+          <p class="muted">No products available.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="panel card">
+      <h3>Low-Stock Alerts</h3>
+      {% if low_products %}
+        <table>
+          <thead>
+            <tr>
+              <th>SKU</th>
+              <th>Name</th>
+              <th>Stock</th>
+              <th>Reorder</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for product in low_products %}
+              <tr class="alert-row">
+                <td>{{ product.sku }}</td>
+                <td>{{ product.name }}</td>
+                <td>{{ product.quantity }}</td>
+                <td>{{ product.reorder_level }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="muted">No low-stock items.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="panel card recent-panel">
+    <h3>Recent Transactions</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>SKU</th>
+          <th>Type</th>
+          <th>Qty</th>
+          <th>Balance</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for txn in recent_transactions %}
+          <tr>
+            <td>{{ txn.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td>{{ txn.sku }}</td>
+            <td>{{ txn.type }}</td>
+            <td>{{ txn.quantity }}</td>
+            <td>{{ txn.balance }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+{% block content %}
+  <div class="page-header">
+    <h1>Products</h1>
+    <div class="header-actions">
+      <a class="button primary" href="{{ url_for('add_product') }}">Add Product</a>
+    </div>
+  </div>
+
+  <form class="toolbar" method="get" action="{{ url_for('products') }}">
+    <div class="field-group compact">
+      <label>Search</label>
+      <input type="text" name="search" value="{{ current_search }}">
+    </div>
+    <div class="field-group compact">
+      <label>Category</label>
+      <select name="category">
+        <option value="">All categories</option>
+        {% for category in categories %}
+          <option value="{{ category }}" {% if current_category == category %}selected{% endif %}>{{ category }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <label class="checkbox-row">
+      <input type="checkbox" name="low_stock" value="1" {% if low_stock_only %}checked{% endif %}>
+      Low stock only
+    </label>
+    <button type="submit">Apply</button>
+  </form>
+
+  {% if products %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>SKU</th>
+            <th>Name</th>
+            <th>Category</th>
+            <th>Unit</th>
+            <th>Unit Price</th>
+            <th>In Stock</th>
+            <th>Reorder At</th>
+            <th>Supplier</th>
+            <th>Location</th>
+            <th>Status</th>
+            {% if current_user.role != 'employee' %}
+              <th>Action</th>
+            {% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for product in products %}
+            <tr class="{% if product.quantity <= product.reorder_level %}alert-row{% endif %}">
+              <td>{{ product.sku }}</td>
+              <td>{{ product.name }}</td>
+              <td>{{ product.category }}</td>
+              <td>{{ product.unit }}</td>
+              <td>{{ '%.2f'|format(product.unit_price) }}</td>
+              <td>{{ product.quantity }}</td>
+              <td>{{ product.reorder_level }}</td>
+              <td>{{ product.supplier }}</td>
+              <td>{{ product.location }}</td>
+              <td>{{ 'Low stock' if product.quantity <= product.reorder_level else 'Healthy' }}</td>
+              {% if current_user.role != 'employee' %}
+                <td>
+                  <div class="inline-actions">
+                    <a href="{{ url_for('edit_product', product_id=product.id) }}" class="link-button">Edit</a>
+                    <form method="post" action="{{ url_for('delete_product', product_id=product.id) }}" onsubmit="return confirm('Delete {{ product.sku }} - {{ product.name }}?');">
+                      <button type="submit" class="danger-link">Delete</button>
+                    </form>
+                  </div>
+                </td>
+              {% endif %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state">No products match the current filter.</div>
+  {% endif %}
+{% endblock %}

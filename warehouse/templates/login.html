@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% block unauthenticated %}
+<div class="login-page">
+  <div class="login-panel">
+    <div class="login-brand">WAREHOUSE</div>
+    <div class="login-copy">
+      <h1>Know what is on<br>every shelf.</h1>
+      <p>Track products, receive and issue stock, and see low-stock alerts in one place.</p>
+      <small>Small Warehouse Management System</small>
+    </div>
+  </div>
+  <div class="login-card-wrap">
+    <div class="login-card">
+      <h2>{{ 'Create administrator account' if setup_mode else ('Register account' if register_mode else 'Sign in') }}</h2>
+      <p class="muted">
+        {{ 'Create the first administrator account.' if setup_mode else ('New accounts are registered as employees.' if register_mode else 'Use your warehouse account.') }}
+      </p>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="flash-stack compact">
+            {% for category, message in messages %}
+              <div class="flash flash-{{ category }}">{{ message }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+      <form method="post">
+        <label>Username</label>
+        <input type="text" name="username" value="{{ username }}" required>
+
+        <label>Password</label>
+        <input type="password" name="password" required>
+
+        {% if setup_mode or register_mode %}
+          <label>Confirm password</label>
+          <input type="password" name="confirm_password" required>
+        {% endif %}
+
+        <button type="submit">{{ 'Create account' if setup_mode else ('Register account' if register_mode else 'Log in') }}</button>
+      </form>
+      {% if not setup_mode %}
+        <a class="secondary-link" href="{{ url_for('login_page', register='1') if not register_mode else url_for('login_page') }}">
+          {{ 'Back to sign in' if register_mode else 'Create new account' }}
+        </a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

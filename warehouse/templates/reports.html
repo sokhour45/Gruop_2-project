@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block content %}
+  <div class="page-header">
+    <h1>Reports</h1>
+  </div>
+
+  <div class="cards-2">
+    <div class="card report-card">
+      <h3>Inventory report</h3>
+      <p>Products, quantities, pricing, suppliers, and locations.</p>
+      <a href="{{ url_for('export_inventory_csv') }}" class="button primary">Export Inventory CSV</a>
+    </div>
+    <div class="card report-card">
+      <h3>Transaction history</h3>
+      <p>A complete record of stock received and issued.</p>
+      <a href="{{ url_for('export_transactions_csv') }}" class="button primary">Export Transactions CSV</a>
+    </div>
+  </div>
+{% endblock %}

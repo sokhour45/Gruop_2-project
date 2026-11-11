@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block content %}
+  <div class="page-header">
+    <h1>{{ title }}</h1>
+  </div>
+
+  <div class="panel card form-card">
+    <form method="post" action="{{ action_url }}">
+      <div class="field-group">
+        <label>Product</label>
+        <select name="product_id">
+          <option value="">Choose a product</option>
+          {% for product in products %}
+            <option value="{{ product.id }}" {% if selected_product and selected_product.id == product.id %}selected{% endif %}>{{ product.sku }} - {{ product.name }} (available: {{ product.quantity }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field-group">
+        <label>Quantity</label>
+        <input type="number" min="1" step="1" name="quantity" value="{{ quantity }}">
+      </div>
+      <div class="field-group">
+        <label>Note (optional)</label>
+        <input type="text" name="note" value="{{ note }}">
+      </div>
+      {% if errors %}
+        <div class="form-errors">
+          {% for error in errors %}
+            <div>{{ error.message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+      <div class="form-actions">
+        <button type="submit" class="primary">{{ title }}</button>
+      </div>
+    </form>
+  </div>
+{% endblock %}

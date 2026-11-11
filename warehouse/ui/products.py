@@ -31,7 +31,8 @@ class ProductsScreen(Screen):
         self.low_only = tk.BooleanVar()
         ttk.Checkbutton(actions, text="Low stock only", variable=self.low_only,
                         command=lambda: self.app.refresh_screen(self)).pack(side="left", padx=8)
-        ttk.Button(actions, text="Add Product", command=self.add_product).pack(side="right", padx=4)
+        ttk.Button(actions, text="Add Product", style="Accent.TButton",
+                   command=self.add_product).pack(side="right", padx=4)
         if self.app.current_user.role != "employee":
             ttk.Button(actions, text="Edit", command=self.edit_selected).pack(side="right", padx=4)
             ttk.Button(actions, text="Delete", command=self.delete_selected).pack(side="right", padx=4)
@@ -40,7 +41,7 @@ class ProductsScreen(Screen):
             ("sku", "SKU", 95), ("name", "Name", 165), ("category", "Category", 130),
             ("unit", "Unit", 60), ("price", "Unit Price", 90), ("quantity", "In Stock", 80),
             ("reorder", "Reorder At", 85), ("supplier", "Supplier", 120),
-            ("location", "Location", 100),
+            ("location", "Location", 100), ("status", "Status", 90),
         )
         self.tree = self.make_tree(self, columns)
         self.tree.grid(row=2, column=0, sticky="nsew")
@@ -64,11 +65,12 @@ class ProductsScreen(Screen):
             self.search_var.get(), self.low_only.get(), category
         ):
             tags = ("low_stock",) if product.quantity <= product.reorder_level else ()
+            status = "Low stock" if product.quantity <= product.reorder_level else "Healthy"
             self.tree.insert(
                 "", "end", iid=str(product.id),
                 values=(product.sku, product.name, product.category, product.unit,
                         f"{product.unit_price:.2f}", product.quantity,
-                        product.reorder_level, product.supplier, product.location),
+                        product.reorder_level, product.supplier, product.location, status),
                 tags=tags,
             )
 
@@ -128,7 +130,7 @@ class ProductForm(ModalForm):
         self.parent_screen = parent
         self.product = product
         self.validated_values: dict[str, object] = {}
-        container = ttk.Frame(self, padding=18)
+        container = ttk.Frame(self, padding=22, style="Modal.TFrame")
         container.grid(sticky="nsew")
         defaults = {
             "sku": product.sku if product else "",
@@ -141,18 +143,38 @@ class ProductForm(ModalForm):
             "supplier": product.supplier if product else "",
             "location": product.location if product else "",
         }
-        self.add_entry(container, 0, "sku", "SKU", defaults["sku"])
-        self.add_entry(container, 1, "name", "Name", defaults["name"])
-        self.add_combo(container, 2, "category", "Category", CATEGORIES, defaults["category"])
-        self.add_combo(container, 3, "unit", "Unit", UNITS, defaults["unit"])
-        self.add_entry(container, 4, "unit_price", "Unit price", defaults["unit_price"])
-        self.add_entry(container, 5, "quantity", "Quantity in stock", defaults["quantity"])
-        self.add_entry(container, 6, "reorder_level", "Reorder level", defaults["reorder_level"])
-        self.add_entry(container, 7, "supplier", "Supplier", defaults["supplier"])
-        self.add_entry(container, 8, "location", "Location (rack/shelf)", defaults["location"])
+        fields = (
+            ("sku", "SKU", defaults["sku"], "entry"),
+            ("name", "Name", defaults["name"], "entry"),
+            ("category", "Category", defaults["category"], "category"),
+            ("unit", "Unit", defaults["unit"], "unit"),
+            ("unit_price", "Unit price", defaults["unit_price"], "entry"),
+            ("quantity", "Quantity in stock", defaults["quantity"], "entry"),
+            ("reorder_level", "Reorder level", defaults["reorder_level"], "entry"),
+            ("supplier", "Supplier", defaults["supplier"], "entry"),
+            ("location", "Location (rack/shelf)", defaults["location"], "entry"),
+        )
+        for index, (key, label, value, kind) in enumerate(fields):
+            row, column = divmod(index, 2)
+            cell = ttk.Frame(container, style="Modal.TFrame")
+            cell.grid(row=row, column=column, sticky="ew", padx=(0, 10) if column == 0 else (10, 0),
+                     pady=(0, 12))
+            ttk.Label(cell, text=label, style="Modal.TLabel").pack(anchor="w", pady=(0, 5))
+            if kind == "category":
+                widget = ttk.Combobox(cell, values=CATEGORIES, state="readonly", width=25)
+                widget.set(value)
+            elif kind == "unit":
+                widget = ttk.Combobox(cell, values=UNITS, state="readonly", width=25)
+                widget.set(value)
+            else:
+                widget = ttk.Entry(cell, width=28)
+                widget.insert(0, value)
+            widget.pack(fill="x")
+            self.fields[key] = widget
+        container.columnconfigure((0, 1), weight=1)
 
         buttons = ttk.Frame(container)
-        buttons.grid(row=9, column=0, columnspan=2, sticky="e", pady=(15, 0))
+        buttons.grid(row=5, column=0, columnspan=2, sticky="e", pady=(4, 0))
         ttk.Button(buttons, text="Cancel", command=self.cancel).pack(side="right", padx=(8, 0))
         ttk.Button(buttons, text="Save", command=self.submit).pack(side="right")
         self.bind("<Return>", lambda _event: self.submit())
