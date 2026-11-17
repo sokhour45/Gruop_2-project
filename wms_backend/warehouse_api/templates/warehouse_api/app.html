@@ -1,0 +1,68 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#123047">
+    <title>Warehouse WMS</title>
+    <link rel="manifest" href="{% static 'warehouse_api/manifest.webmanifest' %}">
+    <link rel="stylesheet" href="{% static 'warehouse_api/app.css' %}">
+    <script defer src="{% static 'warehouse_api/app.js' %}"></script>
+  </head>
+  <body>
+    <section id="login-screen" class="login-shell">
+      <form id="login-form" class="login-card">
+        <div class="brand-mark">W</div>
+        <p class="eyebrow">SMALL WAREHOUSE</p>
+        <h1>Sign in</h1>
+        <p class="muted">Use your warehouse account to continue.</p>
+        <label>Username<input name="username" autocomplete="username" required></label>
+        <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+        <button class="primary full" type="submit">Sign in</button>
+        <div id="login-message" class="notice" role="status" aria-live="polite"></div>
+      </form>
+    </section>
+
+    <div id="app-shell" class="app-shell hidden">
+      <aside class="sidebar">
+        <div class="brand"><span class="brand-mark small">W</span><strong>WAREHOUSE</strong></div>
+        <div id="user-summary" class="user-summary"></div>
+        <nav id="navigation" class="navigation" aria-label="Main navigation">
+          <button data-page="dashboard" data-icon="dashboard">Dashboard</button>
+          <button data-page="items" data-icon="package" data-write="master">Items / SKUs</button>
+          <button data-page="locations" data-icon="location" data-write="master">Bins / locations</button>
+          <button data-page="suppliers" data-icon="truck" data-write="master">Suppliers</button>
+          <button data-page="customers" data-icon="users" data-write="master">Customers</button>
+          <button data-page="receipts" data-icon="receipt">Receipts</button>
+          <button data-page="receive" data-icon="scan" data-operator>Receive / putaway</button>
+          <button data-page="returns" data-icon="return" data-operator>Returns / inspection</button>
+          <button data-page="inventory" data-icon="search">Stock lookup</button>
+          <button data-page="transfer" data-icon="transfer" data-operator>Bin transfer</button>
+          <button data-page="orders" data-icon="cart">Orders</button>
+          <button data-page="picks" data-icon="pick" data-operator>Pick tasks</button>
+          <button data-page="pack" data-icon="shipping" data-operator>Packing / shipping</button>
+          <button data-page="adjustments" data-icon="adjust" >Adjustments</button>
+          <button data-page="counts" data-icon="count">Cycle counts</button>
+          <button data-page="reports" data-icon="chart">Reports</button>
+          <button data-page="expiry" data-icon="expiry" data-manager>Expiry watch</button>
+          <button data-page="replenishment" data-icon="replenish" data-manager>Replenishment advisor</button>
+          <button data-page="users" data-icon="users" data-admin>Users</button>
+          <button data-page="audit" data-icon="audit" data-manager>Audit log</button>
+        </nav>
+        <button id="logout-button" class="logout">Log out</button>
+      </aside>
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <div id="connection-state" class="connection online">Online</div>
+            <div id="page-title" class="page-title">Dashboard</div>
+          </div>
+          <div id="top-user" class="top-user"></div>
+        </header>
+        <div id="global-message" class="notice" role="status" aria-live="polite"></div>
+        <section id="page-content" class="page-content" tabindex="-1"></section>
+      </main>
+    </div>
+  </body>
+</html>

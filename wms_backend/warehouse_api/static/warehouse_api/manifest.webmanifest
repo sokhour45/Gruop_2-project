@@ -1,0 +1,9 @@
+{
+  "name": "Small Warehouse WMS",
+  "short_name": "Warehouse",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f2f6f7",
+  "theme_color": "#123047",
+  "description": "Mobile-friendly warehouse receiving, inventory, and picking."
+}

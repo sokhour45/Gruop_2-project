@@ -84,6 +84,9 @@ button, input, select {
   border-radius: 8px;
   padding: 10px 12px;
   font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .nav-link.active, .nav-link:hover {
@@ -108,8 +111,31 @@ button, input, select {
 .page-header h1 {
   margin: 0;
   font-size: 2rem;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
+.ui-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+}
+
+.heading-icon {
+  width: 26px;
+  height: 26px;
+  flex-basis: 26px;
+  color: var(--brand);
+}
+
+.section-icon {
+  width: 19px;
+  height: 19px;
+  color: var(--brand);
+}
+
+.panel h3 { display: flex; align-items: center; gap: 8px; }
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(180px, 1fr));
@@ -136,7 +162,12 @@ button, input, select {
   color: var(--muted);
   font-size: 0.8rem;
   margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
 }
+
+.metric-icon { width: 17px; height: 17px; color: var(--brand); }
 
 .metric-value {
   font-size: 2rem;
@@ -520,8 +551,36 @@ input.error, select.error {
   .app-shell { flex-direction: column; }
   .sidebar { width: 100%; }
   .content { padding: 20px; }
-  .dashboard-panels, .cards-2, .metric-grid { grid-template-columns: 1fr; }
+  .nav {
+    flex-direction: row;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 3px 1px 8px;
+    scrollbar-width: thin;
+  }
+  .nav-link { flex: 0 0 auto; white-space: nowrap; }
+  .sidebar-spacer { display: none; }
+  .logout-link { align-self: flex-end; }
+  .dashboard-panels, .cards-2 { grid-template-columns: 1fr; }
+  .metric-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
   .form-grid { grid-template-columns: 1fr; }
   .login-page { grid-template-columns: 1fr; }
   .report-card { min-height: 0; }
+}
+
+@media (max-width: 680px) {
+  .sidebar { padding: 10px 10px 8px; }
+  .brand-block { padding: 2px 6px 10px; }
+  .user-line { padding: 0 6px 8px; }
+  .nav-link {
+    padding: 9px 10px;
+    font-size: 0.9rem;
+  }
+  .logout-link { padding: 6px 10px; }
+  .content { padding: 16px 14px; }
+  .page-header h1 { font-size: 1.65rem; }
+  .metric-grid { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+  .metric-card { min-height: 100px; padding: 14px; }
+  .metric-value { font-size: 1.65rem; }
+  .dashboard-panels, .cards-2 { grid-template-columns: 1fr; gap: 12px; }
 }

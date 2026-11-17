@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ page_title or 'Warehouse' }}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v=2) }}">
   </head>
   <body>
     {% if current_user %}
@@ -16,18 +16,18 @@
           </div>
           <div class="user-line">Signed in as {{ current_user.username }} ({{ current_user.role }})</div>
           <nav class="nav">
-            <a href="{{ url_for('dashboard') }}" class="nav-link {% if request.path == url_for('dashboard') %}active{% endif %}">Dashboard</a>
-            <a href="{{ url_for('products') }}" class="nav-link {% if '/products' in request.path %}active{% endif %}">Products</a>
-            <a href="{{ url_for('stock_in') }}" class="nav-link {% if '/stock-in' in request.path %}active{% endif %}">Stock In</a>
-            <a href="{{ url_for('stock_out') }}" class="nav-link {% if '/stock-out' in request.path %}active{% endif %}">Stock Out</a>
-            <a href="{{ url_for('history') }}" class="nav-link {% if request.path == url_for('history') %}active{% endif %}">History</a>
-            <a href="{{ url_for('reports_page') }}" class="nav-link {% if request.path == url_for('reports_page') %}active{% endif %}">Reports</a>
+            <a href="{{ url_for('dashboard') }}" class="nav-link {% if request.path == url_for('dashboard') %}active{% endif %}" data-icon="dashboard">Dashboard</a>
+            <a href="{{ url_for('products') }}" class="nav-link {% if '/products' in request.path %}active{% endif %}" data-icon="package">Products</a>
+            <a href="{{ url_for('stock_in') }}" class="nav-link {% if '/stock-in' in request.path %}active{% endif %}" data-icon="receive">Stock In</a>
+            <a href="{{ url_for('stock_out') }}" class="nav-link {% if '/stock-out' in request.path %}active{% endif %}" data-icon="ship">Stock Out</a>
+            <a href="{{ url_for('history') }}" class="nav-link {% if request.path == url_for('history') %}active{% endif %}" data-icon="history">History</a>
+            <a href="{{ url_for('reports_page') }}" class="nav-link {% if request.path == url_for('reports_page') %}active{% endif %}" data-icon="chart">Reports</a>
             {% if current_user.role == 'admin' %}
-              <a href="{{ url_for('users') }}" class="nav-link {% if request.path == url_for('users') %}active{% endif %}">User Accounts</a>
+              <a href="{{ url_for('users') }}" class="nav-link {% if request.path == url_for('users') %}active{% endif %}" data-icon="users">User Accounts</a>
             {% endif %}
           </nav>
           <div class="sidebar-spacer"></div>
-          <a href="{{ url_for('logout') }}" class="logout-link">Log out</a>
+          <a href="{{ url_for('logout') }}" class="logout-link" data-icon="logout">Log out</a>
         </aside>
         <main class="content">
           {% with messages = get_flashed_messages(with_categories=true) %}
@@ -45,5 +45,6 @@
     {% else %}
       {% block unauthenticated %}{% endblock %}
     {% endif %}
+    <script defer src="{{ url_for('static', filename='icons.js', v=2) }}"></script>
   </body>
 </html>
