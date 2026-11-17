@@ -10,7 +10,7 @@ from warehouse.db import WarehouseDB
 from warehouse.validation import CATEGORIES, UNITS, FieldError, validate_product, validate_movement
 
 
-def create_app() -> Flask:
+def create_app(database: WarehouseDB | None = None) -> Flask:
     base_dir = Path(__file__).resolve().parent
     app = Flask(
         __name__,
@@ -18,7 +18,7 @@ def create_app() -> Flask:
         static_folder=str(base_dir / "static"),
     )
     app.config["SECRET_KEY"] = "warehouse-web-secret-key"
-    db = WarehouseDB()
+    db = database or WarehouseDB()
 
     if not db.has_users():
         db.seed_sample_data()

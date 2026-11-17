@@ -3,10 +3,15 @@
 import sqlite3
 import hashlib
 import hmac
+import os
 import secrets
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Any, Iterable, Iterator
+from urllib.parse import unquote, urlparse
+
+import psycopg
+from psycopg.rows import dict_row
 
 from warehouse.models import Product, Transaction, User
 
@@ -14,20 +19,94 @@ from warehouse.models import Product, Transaction, User
 DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "warehouse.db"
 
 
+class _Connection:
+    def __init__(self, connection: Any, *, postgres: bool):
+        self._connection = connection
+        self._postgres = postgres
+
+    def _sql(self, statement: str) -> str:
+        if not self._postgres:
+            return statement
+        return (
+            statement.replace("BEGIN IMMEDIATE", "BEGIN")
+            .replace(" COLLATE NOCASE", "")
+            .replace("?", "%s")
+        )
+
+    def execute(self, statement: str, parameters: Iterable[object] = ()):
+        return self._connection.execute(self._sql(statement), tuple(parameters))
+
+    def executemany(self, statement: str, parameters: Iterable[Iterable[object]]):
+        return self._connection.executemany(self._sql(statement), parameters)
+
+    def executescript(self, script: str):
+        if self._postgres:
+            raise RuntimeError("PostgreSQL schemas must be initialized statement by statement.")
+        return self._connection.executescript(script)
+
+    def __enter__(self):
+        self._connection.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return self._connection.__exit__(exc_type, exc_value, traceback)
+
+    def __getattr__(self, name):
+        return getattr(self._connection, name)
+
+
 class WarehouseDB:
-    def __init__(self, path: str | Path = DEFAULT_DB_PATH):
-        self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+    def __init__(self, path: str | Path | None = None):
+        self.database_url = ""
+        url_sqlite_path = None
+        if path is None:
+            self.database_url = (
+                os.environ.get("WAREHOUSE_DATABASE_URL")
+                or os.environ.get("POSTGRES_URL_NON_POOLING")
+                or os.environ.get("POSTGRES_URL")
+                or os.environ.get("DATABASE_URL")
+                or ""
+            )
+        self.postgres = self.database_url.startswith(("postgres://", "postgresql://"))
+        if self.database_url.startswith("sqlite:///"):
+            sqlite_path = unquote(urlparse(self.database_url).path)
+            is_windows_drive = (
+                os.name == "nt"
+                and len(sqlite_path) > 2
+                and sqlite_path[0] == "/"
+                and sqlite_path[2] == ":"
+            )
+            if is_windows_drive:
+                sqlite_path = sqlite_path[1:]
+            elif sqlite_path.startswith("//"):
+                sqlite_path = sqlite_path[1:]
+            else:
+                sqlite_path = sqlite_path.lstrip("/")
+            url_sqlite_path = Path(sqlite_path)
+        elif self.database_url and not self.postgres:
+            raise ValueError("Warehouse database URL must use PostgreSQL or SQLite.")
+        if os.environ.get("VERCEL") and not self.postgres:
+            raise RuntimeError(
+                "Configure WAREHOUSE_DATABASE_URL or POSTGRES_URL with a persistent PostgreSQL database on Vercel."
+            )
+        self.path = Path(path) if path is not None else url_sqlite_path or DEFAULT_DB_PATH
+        if not self.postgres:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
         self.initialize()
 
-    def connect(self) -> sqlite3.Connection:
+    def connect(self) -> _Connection:
+        if self.postgres:
+            return _Connection(
+                psycopg.connect(self.database_url, row_factory=dict_row),
+                postgres=True,
+            )
         connection = sqlite3.connect(self.path, timeout=10)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
-        return connection
+        return _Connection(connection, postgres=False)
 
     @contextmanager
-    def _connection(self) -> Iterator[sqlite3.Connection]:
+    def _connection(self) -> Iterator[_Connection]:
         connection = self.connect()
         try:
             with connection:
@@ -36,6 +115,9 @@ class WarehouseDB:
             connection.close()
 
     def initialize(self) -> None:
+        if self.postgres:
+            self._initialize_postgres()
+            return
         with self._connection() as connection:
             connection.executescript(
                 """
@@ -88,6 +170,62 @@ class WarehouseDB:
                     "(SELECT id FROM users ORDER BY id LIMIT 1)"
                 )
 
+    def _initialize_postgres(self) -> None:
+        statements = (
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                username TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'employee'
+                    CHECK (role IN ('admin', 'manager', 'employee')),
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS products (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                sku TEXT NOT NULL,
+                name TEXT NOT NULL,
+                category TEXT NOT NULL,
+                unit TEXT NOT NULL,
+                unit_price DOUBLE PRECISION NOT NULL CHECK (unit_price >= 0),
+                quantity INTEGER NOT NULL CHECK (quantity >= 0),
+                reorder_level INTEGER NOT NULL CHECK (reorder_level >= 0),
+                supplier TEXT NOT NULL DEFAULT '',
+                location TEXT NOT NULL DEFAULT ''
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS transactions (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                product_id BIGINT,
+                sku TEXT NOT NULL,
+                product_name TEXT NOT NULL,
+                type TEXT NOT NULL CHECK (type IN ('IN', 'OUT')),
+                quantity INTEGER NOT NULL CHECK (quantity > 0),
+                note TEXT NOT NULL DEFAULT '',
+                balance INTEGER NOT NULL CHECK (balance >= 0),
+                timestamp TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            "CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_idx ON users (LOWER(username))",
+            "CREATE UNIQUE INDEX IF NOT EXISTS products_sku_lower_idx ON products (LOWER(sku))",
+        )
+        with self._connection() as connection:
+            for statement in statements:
+                connection.execute(statement)
+            connection.execute(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'employee'"
+            )
+            if connection.execute(
+                "SELECT 1 FROM users WHERE role = 'admin' LIMIT 1"
+            ).fetchone() is None:
+                connection.execute(
+                    "UPDATE users SET role = 'admin' WHERE id = "
+                    "(SELECT id FROM users ORDER BY id LIMIT 1)"
+                )
+
     def has_users(self) -> bool:
         with self._connection() as connection:
             return connection.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
@@ -105,14 +243,14 @@ class WarehouseDB:
                     "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
                     (username, password_hash, role),
                 )
-        except sqlite3.IntegrityError as error:
+        except (sqlite3.IntegrityError, psycopg.IntegrityError) as error:
             raise ValueError("That username is already in use.") from error
 
     def authenticate_user(self, username: str, password: str) -> User | None:
         with self._connection() as connection:
             row = connection.execute(
                 "SELECT id, username, password_hash, role FROM users "
-                "WHERE username = ? COLLATE NOCASE",
+                "WHERE LOWER(username) = LOWER(?)",
                 (username.strip(),),
             ).fetchone()
         if row is None:
@@ -134,7 +272,7 @@ class WarehouseDB:
     def list_users(self) -> list[User]:
         with self._connection() as connection:
             rows = connection.execute(
-                "SELECT id, username, role FROM users ORDER BY username COLLATE NOCASE"
+                "SELECT id, username, role FROM users ORDER BY LOWER(username)"
             ).fetchall()
         return [User(row["id"], row["username"], row["role"]) for row in rows]
 
@@ -156,7 +294,7 @@ class WarehouseDB:
             connection.execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
 
     @staticmethod
-    def _product(row: sqlite3.Row) -> Product:
+    def _product(row: Any) -> Product:
         return Product(
             id=row["id"],
             sku=row["sku"],
@@ -171,9 +309,12 @@ class WarehouseDB:
         )
 
     @staticmethod
-    def _transaction(row: sqlite3.Row) -> Transaction:
+    def _transaction(row: Any) -> Transaction:
         from datetime import datetime
 
+        timestamp = row["timestamp"]
+        if isinstance(timestamp, str):
+            timestamp = datetime.fromisoformat(timestamp)
         return Transaction(
             id=row["id"],
             sku=row["sku"],
@@ -182,7 +323,7 @@ class WarehouseDB:
             quantity=row["quantity"],
             note=row["note"],
             balance=row["balance"],
-            timestamp=datetime.fromisoformat(row["timestamp"]),
+            timestamp=timestamp,
         )
 
     def list_products(
@@ -192,14 +333,14 @@ class WarehouseDB:
         params: list[object] = []
         if search.strip():
             term = f"%{search.strip()}%"
-            sql += " AND (sku LIKE ? OR name LIKE ? OR category LIKE ?)"
+            sql += " AND (LOWER(sku) LIKE LOWER(?) OR LOWER(name) LIKE LOWER(?) OR LOWER(category) LIKE LOWER(?))"
             params.extend((term, term, term))
         if low_stock:
             sql += " AND quantity <= reorder_level"
         if category.strip():
             sql += " AND category = ?"
             params.append(category.strip())
-        sql += " ORDER BY name COLLATE NOCASE"
+        sql += " ORDER BY LOWER(name)"
         with self._connection() as connection:
             rows = connection.execute(sql, params).fetchall()
         return [self._product(row) for row in rows]
@@ -214,13 +355,13 @@ class WarehouseDB:
     def sku_exists(self, sku: str) -> bool:
         with self._connection() as connection:
             return connection.execute(
-                "SELECT 1 FROM products WHERE sku = ? COLLATE NOCASE", (sku,)
+                "SELECT 1 FROM products WHERE LOWER(sku) = LOWER(?)", (sku,)
             ).fetchone() is not None
 
     def sku_exists_for_other(self, sku: str, product_id: int) -> bool:
         with self._connection() as connection:
             return connection.execute(
-                "SELECT 1 FROM products WHERE sku = ? COLLATE NOCASE AND id != ?",
+                "SELECT 1 FROM products WHERE LOWER(sku) = LOWER(?) AND id != ?",
                 (sku, product_id),
             ).fetchone() is not None
 
@@ -229,17 +370,24 @@ class WarehouseDB:
         try:
             connection.execute("BEGIN IMMEDIATE")
             if product_id is None:
-                cursor = connection.execute(
-                    """INSERT INTO products
+                statement = """INSERT INTO products
                     (sku, name, category, unit, unit_price, quantity,
                      reorder_level, supplier, location)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    self._product_values(values),
-                )
-                saved_id = int(cursor.lastrowid)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+                if self.postgres:
+                    row = connection.execute(
+                        statement + " RETURNING id",
+                        self._product_values(values),
+                    ).fetchone()
+                    saved_id = int(row["id"])
+                else:
+                    cursor = connection.execute(statement, self._product_values(values))
+                    saved_id = int(cursor.lastrowid)
             else:
+                lock_clause = " FOR UPDATE" if self.postgres else ""
                 previous = connection.execute(
-                    "SELECT quantity FROM products WHERE id = ?", (product_id,)
+                    f"SELECT quantity FROM products WHERE id = ?{lock_clause}",
+                    (product_id,),
                 ).fetchone()
                 if previous is None:
                     raise LookupError("The product no longer exists.")
@@ -313,8 +461,10 @@ class WarehouseDB:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            lock_clause = " FOR UPDATE" if self.postgres else ""
             product = connection.execute(
-                "SELECT * FROM products WHERE id = ?", (product_id,)
+                f"SELECT * FROM products WHERE id = ?{lock_clause}",
+                (product_id,),
             ).fetchone()
             if product is None:
                 raise LookupError("The selected product no longer exists.")
@@ -377,13 +527,15 @@ class WarehouseDB:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
-            connection.executemany(
-                """INSERT OR IGNORE INTO products
+            insert = """INSERT INTO products
                 (sku, name, category, unit, unit_price, quantity,
                  reorder_level, supplier, location)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                samples,
-            )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+            if self.postgres:
+                insert += " ON CONFLICT DO NOTHING"
+            else:
+                insert = insert.replace("INSERT INTO", "INSERT OR IGNORE INTO", 1)
+            connection.executemany(insert, samples)
             connection.commit()
         except Exception:
             connection.rollback()

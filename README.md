@@ -19,6 +19,16 @@ On first launch, create the administrator account. After that, the app keeps the
 - CSV exports
 - User role management for admin accounts
 
+### Deploying the Flask app to Vercel
+
+The Flask app uses SQLite locally, but Vercel's function filesystem is read-only
+and ephemeral. Attach a persistent PostgreSQL database to the Vercel project and
+make its connection URL available as `POSTGRES_URL`, `POSTGRES_URL_NON_POOLING`,
+`DATABASE_URL`, or `WAREHOUSE_DATABASE_URL`. The Flask app creates its tables
+on startup and stores registrations and warehouse data in PostgreSQL. Do not
+point a deployed app at the repository's `warehouse.db`; it is not writable or
+persistent on Vercel. Redeploy after setting the database environment variable.
+
 The original Tkinter code remains available under the `warehouse/` package for reference.
 
 See the [WMS Design](WMS_DESIGN.md) for the product scope, target architecture,
