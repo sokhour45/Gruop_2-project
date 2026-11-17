@@ -279,6 +279,15 @@ class WarehouseDB:
             ).fetchall()
         return [User(row["id"], row["username"], row["role"]) for row in rows]
 
+    def get_user(self, user_id: int) -> User | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT id, username, role FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        return User(row["id"], row["username"], row["role"])
+
     def update_user_role(self, user_id: int, role: str) -> None:
         if role not in {"admin", "manager", "employee"}:
             raise ValueError("Invalid user role.")
@@ -336,8 +345,12 @@ class WarehouseDB:
         params: list[object] = []
         if search.strip():
             term = f"%{search.strip()}%"
-            sql += " AND (LOWER(sku) LIKE LOWER(?) OR LOWER(name) LIKE LOWER(?) OR LOWER(category) LIKE LOWER(?))"
-            params.extend((term, term, term))
+            sql += """ AND (
+                LOWER(sku) LIKE LOWER(?) OR LOWER(name) LIKE LOWER(?)
+                OR LOWER(category) LIKE LOWER(?) OR LOWER(supplier) LIKE LOWER(?)
+                OR LOWER(location) LIKE LOWER(?)
+            )"""
+            params.extend((term, term, term, term, term))
         if low_stock:
             sql += " AND quantity <= reorder_level"
         if category.strip():
@@ -500,12 +513,18 @@ class WarehouseDB:
         finally:
             connection.close()
 
-    def list_transactions(self, limit: int | None = None) -> list[Transaction]:
-        sql = "SELECT * FROM transactions ORDER BY id DESC"
-        params: Iterable[object] = ()
+    def list_transactions(
+        self, limit: int | None = None, movement_type: str | None = None
+    ) -> list[Transaction]:
+        sql = "SELECT * FROM transactions"
+        params: list[object] = []
+        if movement_type is not None:
+            sql += " WHERE type = ?"
+            params.append(movement_type)
+        sql += " ORDER BY id DESC"
         if limit is not None:
             sql += " LIMIT ?"
-            params = (limit,)
+            params.append(limit)
         with self._connection() as connection:
             rows = connection.execute(sql, params).fetchall()
         return [self._transaction(row) for row in rows]

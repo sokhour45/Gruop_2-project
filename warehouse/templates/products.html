@@ -1,76 +1,137 @@
 {% extends 'base.html' %}
 {% block content %}
-  <div class="page-header">
-    <h1>Products</h1>
+  <div class="page-header product-page-header">
+    <div>
+      <p class="product-page-kicker">Inventory catalog</p>
+      <h1>Products</h1>
+      <p class="product-page-subtitle">Find items, check stock health, and maintain your catalog.</p>
+    </div>
     <div class="header-actions">
-      <a class="button primary" href="{{ url_for('add_product') }}">Add Product</a>
+      <a class="button primary" href="{{ url_for('add_product') }}" data-icon="plus">Add product</a>
     </div>
   </div>
 
-  <form class="toolbar" method="get" action="{{ url_for('products') }}">
-    <div class="field-group compact">
-      <label>Search</label>
-      <input type="text" name="search" value="{{ current_search }}">
+  <div class="metric-grid dashboard-metrics products-summary">
+    <div class="metric-card" data-tone="blue">
+      <div class="metric-label">Total SKUs</div>
+      <div class="metric-value">{{ total_products }}</div>
+      <div class="metric-footnote">Products in your catalog</div>
     </div>
-    <div class="field-group compact">
-      <label>Category</label>
-      <select name="category">
+    <div class="metric-card" data-tone="violet">
+      <div class="metric-label">Units on hand</div>
+      <div class="metric-value">{{ '{:,}'.format(total_units) }}</div>
+      <div class="metric-footnote">Across all products</div>
+    </div>
+    <a class="metric-card metric-card-link" data-tone="amber" href="{{ url_for('products', low_stock=1) }}">
+      <div class="metric-label">Reorder alerts</div>
+      <div class="metric-value">{{ low_stock_count }}</div>
+      <div class="metric-footnote">At or below reorder point · View items</div>
+    </a>
+    <div class="metric-card" data-tone="green">
+      <div class="metric-label">Inventory value</div>
+      <div class="metric-value">${{ '{:,.2f}'.format(stock_value) }}</div>
+      <div class="metric-footnote">Based on current unit prices</div>
+    </div>
+  </div>
+
+  <form class="toolbar product-toolbar" method="get" action="{{ url_for('products') }}">
+    <div class="field-group product-search-field">
+      <label for="product-search">Search catalog</label>
+      <input
+        id="product-search"
+        type="search"
+        name="search"
+        value="{{ current_search }}"
+        placeholder="SKU, name, category, supplier, or bin"
+      >
+    </div>
+    <div class="field-group product-category-field">
+      <label for="product-category">Category</label>
+      <select id="product-category" name="category">
         <option value="">All categories</option>
         {% for category in categories %}
           <option value="{{ category }}" {% if current_category == category %}selected{% endif %}>{{ category }}</option>
         {% endfor %}
       </select>
     </div>
-    <label class="checkbox-row">
-      <input type="checkbox" name="low_stock" value="1" {% if low_stock_only %}checked{% endif %}>
-      Low stock only
-    </label>
-    <label class="checkbox-row">
-      <input type="checkbox" name="out_of_stock" value="1" {% if out_of_stock_only %}checked{% endif %}>
-      Out of stock only
-    </label>
-    <button type="submit">Apply</button>
+    <div class="product-filter-checks">
+      <label class="checkbox-row product-filter-check">
+        <input type="checkbox" name="low_stock" value="1" {% if low_stock_only %}checked{% endif %}>
+        Reorder needed
+      </label>
+      <label class="checkbox-row product-filter-check">
+        <input type="checkbox" name="out_of_stock" value="1" {% if out_of_stock_only %}checked{% endif %}>
+        Out of stock
+      </label>
+    </div>
+    <div class="product-filter-actions">
+      <button class="primary" type="submit" data-icon="filter">Apply filters</button>
+      {% if current_search or current_category or low_stock_only or out_of_stock_only %}
+        <a class="button secondary" href="{{ url_for('products') }}">Clear filters</a>
+      {% endif %}
+    </div>
   </form>
 
+  <div class="products-results">
+    <div>
+      <strong>{{ filtered_count }}</strong> of {{ total_products }} products shown
+      {% if current_search or current_category or low_stock_only or out_of_stock_only %}
+        <span class="products-filter-note">Filtered results</span>
+      {% endif %}
+    </div>
+    <span class="products-results-hint">Stock status is based on each product's reorder point.</span>
+  </div>
+
   {% if products %}
-    <div class="table-wrap">
-      <table>
+    <div class="table-wrap products-table-wrap">
+      <table class="products-table">
         <thead>
           <tr>
-            <th>SKU</th>
-            <th>Name</th>
+            <th>Product / SKU</th>
             <th>Category</th>
-            <th>Unit</th>
-            <th>Unit Price</th>
-            <th>In Stock</th>
-            <th>Reorder At</th>
-            <th>Supplier</th>
-            <th>Location</th>
+            <th>Supplier / Bin</th>
+            <th>Unit price</th>
+            <th>On hand</th>
+            <th>Reorder at</th>
             <th>Status</th>
             {% if current_user.role != 'employee' %}
-              <th>Action</th>
+              <th>Actions</th>
             {% endif %}
           </tr>
         </thead>
         <tbody>
           {% for product in products %}
-            <tr class="{% if product.quantity <= product.reorder_level %}alert-row{% endif %}">
-              <td>{{ product.sku }}</td>
-              <td>{{ product.name }}</td>
-              <td>{{ product.category }}</td>
-              <td>{{ product.unit }}</td>
-              <td>{{ '%.2f'|format(product.unit_price) }}</td>
-              <td>{{ product.quantity }}</td>
-              <td>{{ product.reorder_level }}</td>
-              <td>{{ product.supplier }}</td>
-              <td>{{ product.location }}</td>
-              <td>{{ 'Low stock' if product.quantity <= product.reorder_level else 'Healthy' }}</td>
+            <tr class="{% if product.quantity == 0 %}product-row-empty{% elif product.quantity <= product.reorder_level %}product-row-low{% endif %}">
+              <td class="product-name-cell">
+                <strong>{{ product.name }}</strong>
+                <span class="product-sku">SKU {{ product.sku }}</span>
+              </td>
+              <td><span class="product-category-tag">{{ product.category }}</span></td>
+              <td class="product-supplier-cell">
+                <span>{{ product.supplier or 'No supplier' }}</span>
+                <span class="product-meta">Bin {{ product.location or 'Unassigned' }}</span>
+              </td>
+              <td class="product-price">${{ '%.2f'|format(product.unit_price) }}</td>
+              <td class="product-quantity">
+                <strong>{{ product.quantity }}</strong>
+                <span>{{ product.unit }}</span>
+              </td>
+              <td>{{ product.reorder_level }} {{ product.unit }}</td>
+              <td>
+                {% if product.quantity == 0 %}
+                  <span class="product-status status-empty">Out of stock</span>
+                {% elif product.quantity <= product.reorder_level %}
+                  <span class="product-status status-low">Reorder</span>
+                {% else %}
+                  <span class="product-status status-healthy">Healthy</span>
+                {% endif %}
+              </td>
               {% if current_user.role != 'employee' %}
                 <td>
-                  <div class="inline-actions">
-                    <a href="{{ url_for('edit_product', product_id=product.id) }}" class="link-button">Edit</a>
-                    <form method="post" action="{{ url_for('delete_product', product_id=product.id) }}" onsubmit="return confirm('Delete {{ product.sku }} - {{ product.name }}?');">
-                      <button type="submit" class="danger-link">Delete</button>
+                  <div class="inline-actions product-actions">
+                    <a href="{{ url_for('edit_product', product_id=product.id) }}" class="link-button" data-icon="edit">Edit</a>
+                    <form method="post" action="{{ url_for('delete_product', product_id=product.id) }}" onsubmit="return confirm('Delete this product?');">
+                      <button type="submit" class="danger-link" data-icon="delete" aria-label="Delete {{ product.name }}">Delete</button>
                     </form>
                   </div>
                 </td>
@@ -81,6 +142,16 @@
       </table>
     </div>
   {% else %}
-    <div class="empty-state">No products match the current filter.</div>
+    <section class="products-empty">
+      <span class="products-empty-icon" data-icon="package"></span>
+      <h2>No products found</h2>
+      {% if current_search or current_category or low_stock_only or out_of_stock_only %}
+        <p>Try changing your search or filters to find a product.</p>
+        <a class="button secondary" href="{{ url_for('products') }}">Clear filters</a>
+      {% else %}
+        <p>Your product catalog is empty. Add your first SKU to start tracking stock.</p>
+        <a class="button primary" href="{{ url_for('add_product') }}" data-icon="plus">Add first product</a>
+      {% endif %}
+    </section>
   {% endif %}
 {% endblock %}

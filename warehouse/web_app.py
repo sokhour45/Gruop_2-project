@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
 from functools import wraps
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,16 @@ def create_app(database: WarehouseDB | None = None) -> Flask:
                 user = current_user()
                 if user is None:
                     return redirect(url_for("login_page"))
+                stored_user = db.get_user(user["id"])
+                if stored_user is None:
+                    session.clear()
+                    return redirect(url_for("login_page"))
+                user = {
+                    "id": stored_user.id,
+                    "username": stored_user.username,
+                    "role": stored_user.role,
+                }
+                session["user"] = user
                 if user.get("role") not in allowed_roles:
                     flash("You do not have permission for that action.", "error")
                     return redirect(url_for("dashboard"))
@@ -185,18 +196,28 @@ def create_app(database: WarehouseDB | None = None) -> Flask:
         low_stock_only = request.args.get("low_stock", "") == "1"
         out_of_stock_only = request.args.get("out_of_stock", "") == "1"
         category = request.args.get("category", "").strip()
+        all_products = db.list_products()
         product_list = db.list_products(search=search, low_stock=low_stock_only, category=category)
         if out_of_stock_only:
             product_list = [product for product in product_list if product.quantity == 0]
-        categories = sorted({product.category for product in db.list_products()})
+        total_products = len(all_products)
         return render_template(
             "products.html",
             products=product_list,
-            categories=categories,
+            categories=sorted({product.category for product in all_products}),
             current_search=search,
             current_category=category,
             low_stock_only=low_stock_only,
             out_of_stock_only=out_of_stock_only,
+            total_products=total_products,
+            total_units=sum(product.quantity for product in all_products),
+            low_stock_count=sum(
+                product.quantity <= product.reorder_level for product in all_products
+            ),
+            stock_value=sum(
+                product.unit_price * product.quantity for product in all_products
+            ),
+            filtered_count=len(product_list),
             page_title="Products",
         )
 
@@ -293,103 +314,247 @@ def create_app(database: WarehouseDB | None = None) -> Flask:
         flash(f"Deleted product {product.sku}.", "success")
         return redirect(url_for("products"))
 
+    def render_stock_movement(
+        movement_type: str,
+        selected_product=None,
+        quantity: str = "",
+        note: str = "",
+        errors=(),
+        form_error: str = "",
+    ):
+        products = db.list_products()
+        is_inbound = movement_type == "IN"
+        movement_title = "Stock In" if is_inbound else "Stock Out"
+        recent_transactions = db.list_transactions(limit=5, movement_type=movement_type)
+        return render_template(
+            "stock_movement.html",
+            title=movement_title,
+            subtitle=(
+                "Record received goods and update available inventory."
+                if is_inbound
+                else "Issue picked goods and prevent stock from going below zero."
+            ),
+            movement_type=movement_type,
+            action_url=url_for("stock_in" if is_inbound else "stock_out"),
+            products=products,
+            selected_product=selected_product,
+            quantity=quantity,
+            note=note,
+            errors=errors,
+            form_error=form_error,
+            total_products=len(products),
+            total_units=sum(product.quantity for product in products),
+            available_sku_count=sum(product.quantity > 0 for product in products),
+            reorder_count=sum(
+                product.quantity <= product.reorder_level for product in products
+            ),
+            recent_transactions=recent_transactions,
+            page_title=movement_title,
+        )
+
     @app.route("/stock-in", methods=["GET", "POST"])
     @login_required
     def stock_in():
         if request.method == "POST":
-            product_id = request.form.get("product_id")
+            product_id_text = request.form.get("product_id", "")
             quantity = request.form.get("quantity", "")
-            note = request.form.get("note", "")
-            product = db.get_product(int(product_id)) if product_id else None
+            note = request.form.get("note", "").strip()
+            try:
+                product_id = int(product_id_text)
+            except ValueError:
+                product_id = 0
+            product = db.get_product(product_id) if product_id > 0 else None
             if product is None:
-                flash("Choose a product from the list.", "error")
-                return redirect(url_for("stock_in"))
+                return render_stock_movement(
+                    "IN", quantity=quantity, note=note,
+                    form_error="Choose a valid product from the list.",
+                )
             valid_quantity, errors = validate_movement(quantity, "IN", product.quantity)
             if errors:
-                flash("; ".join(error.message for error in errors), "error")
-                return render_template(
-                    "stock_movement.html",
-                    title="Stock In",
-                    movement_type="IN",
-                    action_url="/stock-in",
-                    products=db.list_products(),
-                    selected_product=product,
-                    quantity=quantity,
-                    note=note,
-                    errors=errors,
-                    page_title="Stock In",
+                return render_stock_movement(
+                    "IN", product, quantity, note, errors=errors
                 )
-            db.record_movement(product.id, "IN", valid_quantity, note)
-            flash(f"Stock movement saved. New balance: {product.quantity + valid_quantity}.", "success")
+            try:
+                balance = db.record_movement(product.id, "IN", valid_quantity, note)
+            except (LookupError, ValueError) as error:
+                current_product = db.get_product(product.id)
+                return render_stock_movement(
+                    "IN",
+                    current_product,
+                    quantity,
+                    note,
+                    form_error=str(error),
+                )
+            flash(f"Stock movement saved. New balance: {balance}.", "success")
             return redirect(url_for("stock_in"))
-        return render_template(
-            "stock_movement.html",
-            title="Stock In",
-            movement_type="IN",
-            action_url="/stock-in",
-            products=db.list_products(),
-            selected_product=None,
-            quantity="",
-            note="",
-            errors=[],
-            page_title="Stock In",
-        )
+        return render_stock_movement("IN")
 
     @app.route("/stock-out", methods=["GET", "POST"])
     @login_required
     def stock_out():
         if request.method == "POST":
-            product_id = request.form.get("product_id")
+            product_id_text = request.form.get("product_id", "")
             quantity = request.form.get("quantity", "")
-            note = request.form.get("note", "")
-            product = db.get_product(int(product_id)) if product_id else None
+            note = request.form.get("note", "").strip()
+            try:
+                product_id = int(product_id_text)
+            except ValueError:
+                product_id = 0
+            product = db.get_product(product_id) if product_id > 0 else None
             if product is None:
-                flash("Choose a product from the list.", "error")
-                return redirect(url_for("stock_out"))
+                return render_stock_movement(
+                    "OUT", quantity=quantity, note=note,
+                    form_error="Choose a valid product from the list.",
+                )
             valid_quantity, errors = validate_movement(quantity, "OUT", product.quantity)
             if errors:
-                flash("; ".join(error.message for error in errors), "error")
-                return render_template(
-                    "stock_movement.html",
-                    title="Stock Out",
-                    movement_type="OUT",
-                    action_url="/stock-out",
-                    products=db.list_products(),
-                    selected_product=product,
-                    quantity=quantity,
-                    note=note,
-                    errors=errors,
-                    page_title="Stock Out",
+                return render_stock_movement(
+                    "OUT", product, quantity, note, errors=errors
                 )
-            db.record_movement(product.id, "OUT", valid_quantity, note)
-            flash(f"Stock movement saved. New balance: {product.quantity - valid_quantity}.", "success")
+            try:
+                balance = db.record_movement(product.id, "OUT", valid_quantity, note)
+            except (LookupError, ValueError) as error:
+                current_product = db.get_product(product.id)
+                return render_stock_movement(
+                    "OUT",
+                    current_product,
+                    quantity,
+                    note,
+                    form_error=str(error),
+                )
+            flash(f"Stock movement saved. New balance: {balance}.", "success")
             return redirect(url_for("stock_out"))
-        return render_template(
-            "stock_movement.html",
-            title="Stock Out",
-            movement_type="OUT",
-            action_url="/stock-out",
-            products=db.list_products(),
-            selected_product=None,
-            quantity="",
-            note="",
-            errors=[],
-            page_title="Stock Out",
-        )
+        return render_stock_movement("OUT")
 
     @app.route("/history")
     @login_required
     def history():
+        search = request.args.get("search", "").strip()
+        movement_type = request.args.get("movement_type", "").upper()
+        if movement_type not in {"", "IN", "OUT"}:
+            movement_type = ""
+            filter_error = "Choose a valid movement type."
+        else:
+            filter_error = ""
+
+        def parse_date_filter(field: str) -> date | None:
+            nonlocal filter_error
+            value = request.args.get(field, "").strip()
+            if not value:
+                return None
+            try:
+                parsed = date.fromisoformat(value)
+            except ValueError:
+                filter_error = "Use valid dates in YYYY-MM-DD format."
+                return None
+            if parsed.isoformat() != value:
+                filter_error = "Use valid dates in YYYY-MM-DD format."
+                return None
+            return parsed
+
+        from_date = parse_date_filter("from_date")
+        to_date = parse_date_filter("to_date")
+        if from_date and to_date and from_date > to_date:
+            filter_error = "The start date must be on or before the end date."
+            from_date = to_date = None
+
+        all_transactions = db.list_transactions()
+        filtered_transactions = [
+            transaction
+            for transaction in all_transactions
+            if (not movement_type or transaction.type == movement_type)
+            and (
+                not search
+                or search.lower()
+                in f"{transaction.sku} {transaction.product_name} {transaction.note}".lower()
+            )
+            and (not from_date or transaction.timestamp.date() >= from_date)
+            and (not to_date or transaction.timestamp.date() <= to_date)
+        ]
+        page_size = 50
+        try:
+            page = max(1, int(request.args.get("page", "1")))
+        except ValueError:
+            page = 1
+        total_matches = len(filtered_transactions)
+        page_count = max(1, (total_matches + page_size - 1) // page_size)
+        page = min(page, page_count)
+        page_start = (page - 1) * page_size
         return render_template(
             "history.html",
-            transactions=db.list_transactions(),
+            transactions=filtered_transactions[page_start:page_start + page_size],
+            total_transactions=len(all_transactions),
+            total_matches=total_matches,
+            inbound_units=sum(
+                transaction.quantity for transaction in all_transactions
+                if transaction.type == "IN"
+            ),
+            outbound_units=sum(
+                transaction.quantity for transaction in all_transactions
+                if transaction.type == "OUT"
+            ),
+            current_search=search,
+            current_movement_type=movement_type,
+            current_from_date=from_date.isoformat() if from_date else "",
+            current_to_date=to_date.isoformat() if to_date else "",
+            filter_error=filter_error,
+            page=page,
+            page_count=page_count,
+            page_start=page_start,
+            first_result=page_start + 1 if total_matches else 0,
+            last_result=min(page_start + page_size, total_matches),
             page_title="Transaction History",
         )
 
     @app.route("/reports")
     @login_required
     def reports_page():
-        return render_template("reports.html", page_title="Reports")
+        products = db.list_products()
+        transactions = db.list_transactions()
+        categories = {}
+        for product in products:
+            summary = categories.setdefault(
+                product.category,
+                {"product_count": 0, "units": 0, "stock_value": 0.0},
+            )
+            summary["product_count"] += 1
+            summary["units"] += product.quantity
+            summary["stock_value"] += product.unit_price * product.quantity
+
+        recent_cutoff = date.today() - timedelta(days=30)
+        recent_transactions = [
+            transaction
+            for transaction in transactions
+            if transaction.timestamp.date() >= recent_cutoff
+        ]
+        low_products = sorted(
+            (product for product in products if product.quantity <= product.reorder_level),
+            key=lambda product: (product.quantity, product.name.lower()),
+        )
+        return render_template(
+            "reports.html",
+            total_products=len(products),
+            total_units=sum(product.quantity for product in products),
+            stock_value=sum(
+                product.unit_price * product.quantity for product in products
+            ),
+            low_stock_count=len(low_products),
+            inbound_units=sum(
+                transaction.quantity for transaction in recent_transactions
+                if transaction.type == "IN"
+            ),
+            outbound_units=sum(
+                transaction.quantity for transaction in recent_transactions
+                if transaction.type == "OUT"
+            ),
+            recent_movement_count=len(recent_transactions),
+            category_summary=sorted(categories.items()),
+            category_max=max(
+                (summary["units"] for summary in categories.values()), default=0
+            ),
+            low_products=low_products[:5],
+            page_title="Reports",
+        )
 
     @app.route("/export/inventory.csv")
     @login_required
@@ -451,13 +616,27 @@ def create_app(database: WarehouseDB | None = None) -> Flask:
     @login_required
     @role_required("admin")
     def users():
-        return render_template("users.html", users=user_list(), page_title="User Accounts")
+        account_list = user_list()
+        role_counts = {
+            role: sum(user["role"] == role for user in account_list)
+            for role in ("admin", "manager", "employee")
+        }
+        return render_template(
+            "users.html",
+            users=account_list,
+            role_counts=role_counts,
+            current_user_id=current_user()["id"],
+            page_title="User Accounts",
+        )
 
     @app.route("/users/<int:user_id>/role", methods=["POST"])
     @login_required
     @role_required("admin")
     def update_user_role(user_id: int):
         role = request.form.get("role", "employee")
+        if current_user()["id"] == user_id and role != "admin":
+            flash("You cannot remove your own administrator access.", "error")
+            return redirect(url_for("users"))
         try:
             db.update_user_role(user_id, role)
             flash("User role updated.", "success")

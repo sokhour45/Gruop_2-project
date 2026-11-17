@@ -161,12 +161,209 @@ class WarehouseDatabaseTests(unittest.TestCase):
                     "password": "secure-test-password",
                 },
             )
-            response = client.get("/products?out_of_stock=1")
+            response = client.get("/products?out_of_stock=1&search=A1-01")
 
             self.assertEqual(response.status_code, 200)
             self.assertIn(b"Ballpoint Pens", response.data)
             self.assertNotIn(b"Shipping Carton", response.data)
-            self.assertIn(b"Out of stock only", response.data)
+            self.assertIn(b"Out of stock", response.data)
+            self.assertIn(b"Total SKUs", response.data)
+            self.assertIn(b"of 3 products shown", response.data)
+            self.assertIn(b"Clear filters", response.data)
+
+    def test_stock_movement_pages_show_product_stock_context(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = WarehouseDB(Path(directory) / "warehouse-test.db")
+            database.seed_sample_data()
+            database.record_movement(1, "OUT", 12, "Test depletion")
+            client = self.make_app(directory, database).test_client()
+
+            client.post(
+                "/login",
+                data={
+                    "username": "movement-admin",
+                    "password": "secure-test-password",
+                    "confirm_password": "secure-test-password",
+                },
+            )
+            stock_in_response = client.get("/stock-in")
+            stock_out_response = client.get("/stock-out")
+
+            self.assertEqual(stock_in_response.status_code, 200)
+            self.assertIn(b"Receive inventory", stock_in_response.data)
+            self.assertIn(b"Product choices", stock_in_response.data)
+            self.assertIn(b"Recent receipts", stock_in_response.data)
+            self.assertEqual(stock_out_response.status_code, 200)
+            self.assertIn(b"Issue inventory", stock_out_response.data)
+            self.assertIn(b"SKUs available to issue", stock_out_response.data)
+            self.assertIn(b"value=\"1\"", stock_out_response.data)
+            self.assertIn(b'data-quantity="0"', stock_out_response.data)
+            self.assertIn(b"disabled", stock_out_response.data)
+
+    def test_stock_out_rejects_quantity_above_available_and_preserves_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = WarehouseDB(Path(directory) / "warehouse-test.db")
+            database.seed_sample_data()
+            client = self.make_app(directory, database).test_client()
+            client.post(
+                "/login",
+                data={
+                    "username": "movement-admin",
+                    "password": "secure-test-password",
+                    "confirm_password": "secure-test-password",
+                },
+            )
+
+            response = client.post(
+                "/stock-out",
+                data={"product_id": "1", "quantity": "15", "note": "Order 103"},
+            )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(b"Only 12 available", response.data)
+            self.assertIn(b'value="15"', response.data)
+            self.assertIn(b'value="Order 103"', response.data)
+            self.assertEqual(database.get_product(1).quantity, 12)
+
+    def test_stock_in_and_stock_out_post_movements_and_new_balances(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = WarehouseDB(Path(directory) / "warehouse-test.db")
+            database.seed_sample_data()
+            client = self.make_app(directory, database).test_client()
+            client.post(
+                "/login",
+                data={
+                    "username": "movement-admin",
+                    "password": "secure-test-password",
+                    "confirm_password": "secure-test-password",
+                },
+            )
+
+            receive_response = client.post(
+                "/stock-in",
+                data={"product_id": "1", "quantity": "3", "note": "PO 204"},
+            )
+            issue_response = client.post(
+                "/stock-out",
+                data={"product_id": "1", "quantity": "2", "note": "Order 103"},
+            )
+
+            self.assertEqual(receive_response.status_code, 302)
+            self.assertEqual(issue_response.status_code, 302)
+            self.assertEqual(database.get_product(1).quantity, 13)
+            transactions = database.list_transactions(limit=2)
+            self.assertEqual([transaction.type for transaction in transactions], ["OUT", "IN"])
+            self.assertEqual(transactions[0].balance, 13)
+            self.assertEqual(transactions[1].balance, 15)
+            inbound = database.list_transactions(limit=1, movement_type="IN")
+            self.assertEqual(len(inbound), 1)
+            self.assertEqual(inbound[0].balance, 15)
+
+    def test_history_filters_and_paginates_matching_movements(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = WarehouseDB(Path(directory) / "warehouse-test.db")
+            database.seed_sample_data()
+            for index in range(51):
+                database.record_movement(1, "IN", 1, f"PO-BATCH-{index}")
+            database.record_movement(1, "OUT", 1, "Order 884")
+            client = self.make_app(directory, database).test_client()
+            client.post(
+                "/login",
+                data={
+                    "username": "history-admin",
+                    "password": "secure-test-password",
+                    "confirm_password": "secure-test-password",
+                },
+            )
+            transaction_date = database.list_transactions(limit=1)[0].timestamp.date().isoformat()
+            filters = {
+                "movement_type": "IN",
+                "search": "PO-BATCH",
+                "from_date": transaction_date,
+                "to_date": transaction_date,
+            }
+
+            first_page = client.get("/history", query_string=filters)
+            second_page = client.get(
+                "/history", query_string={**filters, "page": "2"}
+            )
+
+            self.assertEqual(first_page.status_code, 200)
+            self.assertIn(b"Page 1 of 2", first_page.data)
+            self.assertNotIn(b"Order 884", first_page.data)
+            self.assertEqual(second_page.status_code, 200)
+            self.assertIn(b"Page 2 of 2", second_page.data)
+            self.assertIn(b"PO-BATCH-0", second_page.data)
+
+    def test_reports_summarize_stock_and_recent_movements(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = WarehouseDB(Path(directory) / "warehouse-test.db")
+            database.seed_sample_data()
+            database.record_movement(1, "IN", 2, "PO 554")
+            database.record_movement(1, "OUT", 1, "Order 884")
+            client = self.make_app(directory, database).test_client()
+            client.post(
+                "/login",
+                data={
+                    "username": "reports-admin",
+                    "password": "secure-test-password",
+                    "confirm_password": "secure-test-password",
+                },
+            )
+
+            response = client.get("/reports")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(b"Inventory value", response.data)
+            self.assertIn(b"Movement in the last 30 days", response.data)
+            self.assertIn(b"+2", response.data)
+            self.assertIn(b"1", response.data)
+            self.assertIn(b"Stock by category", response.data)
+            self.assertIn(b"Export inventory CSV", response.data)
+
+    def test_users_page_safeguards_roles_and_refreshes_permissions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = WarehouseDB(Path(directory) / "warehouse-test.db")
+            app = self.make_app(directory, database)
+            admin_client = app.test_client()
+            admin_client.post(
+                "/login",
+                data={
+                    "username": "accounts-admin",
+                    "password": "secure-test-password",
+                    "confirm_password": "secure-test-password",
+                },
+            )
+            database.create_user("warehouse-manager", "manager-test-password", "manager")
+            admin = next(user for user in database.list_users() if user.username == "accounts-admin")
+            manager = next(user for user in database.list_users() if user.username == "warehouse-manager")
+            manager_client = app.test_client()
+            manager_client.post(
+                "/login",
+                data={
+                    "username": "warehouse-manager",
+                    "password": "manager-test-password",
+                },
+            )
+
+            users_response = admin_client.get("/users")
+            self_change_response = admin_client.post(
+                f"/users/{admin.id}/role", data={"role": "employee"}
+            )
+            manager_change_response = admin_client.post(
+                f"/users/{manager.id}/role", data={"role": "employee"}
+            )
+            protected_response = manager_client.get("/products/1/edit")
+
+            self.assertEqual(users_response.status_code, 200)
+            self.assertIn(b"Your own role cannot be changed here", users_response.data)
+            self.assertIn(b"Administrators", users_response.data)
+            self.assertEqual(self_change_response.status_code, 302)
+            self.assertEqual(database.get_user(admin.id).role, "admin")
+            self.assertEqual(manager_change_response.status_code, 302)
+            self.assertEqual(database.get_user(manager.id).role, "employee")
+            self.assertEqual(protected_response.status_code, 302)
+            self.assertEqual(protected_response.headers["Location"], "/dashboard")
 
     def test_sqlite_database_keeps_product_and_movement_operations(self):
         with tempfile.TemporaryDirectory() as directory:

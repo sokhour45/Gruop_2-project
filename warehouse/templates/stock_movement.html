@@ -1,38 +1,217 @@
 {% extends 'base.html' %}
 {% block content %}
-  <div class="page-header">
-    <h1>{{ title }}</h1>
+  <div class="page-header movement-page-header">
+    <div>
+      <p class="movement-kicker">{{ 'Inbound inventory' if movement_type == 'IN' else 'Outbound inventory' }}</p>
+      <h1>{{ title }}</h1>
+      <p class="movement-subtitle">{{ subtitle }}</p>
+    </div>
+    <div class="movement-page-actions">
+      <a class="button secondary" href="{{ url_for('products') }}" data-icon="package">Products</a>
+      <a
+        class="button {{ 'primary' if movement_type == 'IN' else 'secondary' }}"
+        href="{{ url_for('stock_in') }}"
+        data-icon="receive"
+      >Stock in</a>
+      <a
+        class="button {{ 'primary' if movement_type == 'OUT' else 'secondary' }}"
+        href="{{ url_for('stock_out') }}"
+        data-icon="ship"
+      >Stock out</a>
+    </div>
   </div>
 
-  <div class="panel card form-card">
-    <form method="post" action="{{ action_url }}">
-      <div class="field-group">
-        <label>Product</label>
-        <select name="product_id">
-          <option value="">Choose a product</option>
-          {% for product in products %}
-            <option value="{{ product.id }}" {% if selected_product and selected_product.id == product.id %}selected{% endif %}>{{ product.sku }} - {{ product.name }} (available: {{ product.quantity }})</option>
-          {% endfor %}
-        </select>
+  <div class="metric-grid dashboard-metrics movement-summary">
+    <div class="metric-card" data-tone="blue">
+      <div class="metric-label">Product choices</div>
+      <div class="metric-value">{{ total_products }}</div>
+      <div class="metric-footnote">SKUs in the catalog</div>
+    </div>
+    <div class="metric-card" data-tone="violet">
+      <div class="metric-label">Units on hand</div>
+      <div class="metric-value">{{ '{:,}'.format(total_units) }}</div>
+      <div class="metric-footnote">Current inventory total</div>
+    </div>
+    {% if movement_type == 'IN' %}
+      <a class="metric-card metric-card-link" data-tone="amber" href="{{ url_for('products', low_stock=1) }}">
+        <div class="metric-label">Reorder alerts</div>
+        <div class="metric-value">{{ reorder_count }}</div>
+        <div class="metric-footnote">Items at or below reorder point</div>
+      </a>
+    {% else %}
+      <div class="metric-card" data-tone="green">
+        <div class="metric-label">SKUs available to issue</div>
+        <div class="metric-value">{{ available_sku_count }}</div>
+        <div class="metric-footnote">Products with stock on hand</div>
       </div>
-      <div class="field-group">
-        <label>Quantity</label>
-        <input type="number" min="1" step="1" name="quantity" value="{{ quantity }}">
-      </div>
-      <div class="field-group">
-        <label>Note (optional)</label>
-        <input type="text" name="note" value="{{ note }}">
-      </div>
-      {% if errors %}
-        <div class="form-errors">
-          {% for error in errors %}
-            <div>{{ error.message }}</div>
-          {% endfor %}
-        </div>
-      {% endif %}
-      <div class="form-actions">
-        <button type="submit" class="primary">{{ title }}</button>
-      </div>
-    </form>
+    {% endif %}
   </div>
+
+  <div class="movement-layout">
+    <section class="panel card movement-form-panel">
+      <div class="movement-panel-heading">
+        <div>
+          <h2>{{ 'Receive inventory' if movement_type == 'IN' else 'Issue inventory' }}</h2>
+          <p>Choose a product, enter a quantity, and record a note for the stock history.</p>
+        </div>
+        <span class="movement-type-badge {{ 'inbound-badge' if movement_type == 'IN' else 'outbound-badge' }}">
+          {{ 'Stock receipt' if movement_type == 'IN' else 'Stock issue' }}
+        </span>
+      </div>
+
+      <form class="movement-form" method="post" action="{{ action_url }}" data-stock-movement="{{ movement_type }}">
+        {% if form_error %}
+          <div class="form-errors" role="alert">{{ form_error }}</div>
+        {% endif %}
+        {% if errors %}
+          <div class="form-errors" role="alert">
+            {% for error in errors %}
+              <div>{{ error.message }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        <div class="field-group">
+          <label for="movement-product">Product / SKU</label>
+          <select id="movement-product" name="product_id" required aria-describedby="movement-product-help">
+            <option value="">Choose a product</option>
+            {% for product in products %}
+              <option
+                value="{{ product.id }}"
+                data-quantity="{{ product.quantity }}"
+                data-reorder="{{ product.reorder_level }}"
+                data-unit="{{ product.unit }}"
+                data-location="{{ product.location }}"
+                {% if movement_type == 'OUT' and product.quantity == 0 %}disabled{% endif %}
+                {% if selected_product and selected_product.id == product.id %}selected{% endif %}
+              >{{ product.sku }} - {{ product.name }} ({{ product.quantity }} {{ product.unit }} on hand)</option>
+            {% endfor %}
+          </select>
+          <span id="movement-product-help" class="field-help">
+            {% if movement_type == 'OUT' %}
+              Products with no stock are disabled. Type a SKU in the list to jump to it.
+            {% else %}
+              Pick the SKU matching the goods received.
+            {% endif %}
+          </span>
+        </div>
+
+        <div class="movement-product-snapshot" id="movement-product-snapshot" hidden>
+          <div class="movement-snapshot-heading">
+            <strong id="movement-product-name">Selected product</strong>
+            <span id="movement-product-location"></span>
+          </div>
+          <div class="movement-snapshot-values">
+            <div>
+              <span>{{ 'Current on hand' if movement_type == 'IN' else 'Available to issue' }}</span>
+              <strong><span id="movement-current-quantity">0</span> <span id="movement-unit"></span></strong>
+            </div>
+            <div>
+              <span>After this movement</span>
+              <strong><span id="movement-projected-quantity">0</span> <span id="movement-projected-unit"></span></strong>
+            </div>
+            <div>
+              <span>Reorder point</span>
+              <strong><span id="movement-reorder-point">0</span> <span id="movement-reorder-unit"></span></strong>
+            </div>
+          </div>
+          <p class="movement-guidance" id="movement-guidance"></p>
+        </div>
+
+        <div class="field-group movement-quantity-field">
+          <label for="movement-quantity">Quantity</label>
+          <input
+            id="movement-quantity"
+            type="number"
+            min="1"
+            step="1"
+            name="quantity"
+            value="{{ quantity }}"
+            required
+            {% if movement_type == 'OUT' and selected_product %}max="{{ selected_product.quantity }}"{% endif %}
+            aria-describedby="movement-quantity-help"
+          >
+          <span id="movement-quantity-help" class="field-help">
+            Enter a whole number greater than zero.
+          </span>
+          <div class="quantity-quick-actions" aria-label="Set a common quantity">
+            {% for amount in (1, 5, 10) %}
+              <button type="button" class="quantity-preset" data-set-quantity="{{ amount }}">{{ amount }}</button>
+            {% endfor %}
+            {% if movement_type == 'OUT' %}
+              <button type="button" class="quantity-preset use-available-button" data-use-available disabled>Use all available</button>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label for="movement-note">Reference / note <span class="optional-label">Optional</span></label>
+          <input
+            id="movement-note"
+            type="text"
+            name="note"
+            value="{{ note }}"
+            maxlength="240"
+            placeholder="{{ 'PO, delivery, or receiving note' if movement_type == 'IN' else 'Order, job, or issue reason' }}"
+          >
+          <span class="field-help">This note is saved with the stock movement history.</span>
+        </div>
+
+        <div class="movement-form-footer">
+          <p>Posting updates the product balance and creates a history record.</p>
+          <button type="submit" class="primary" data-icon="{{ 'receive' if movement_type == 'IN' else 'ship' }}">
+            {{ 'Confirm stock in' if movement_type == 'IN' else 'Confirm stock out' }}
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <aside class="movement-side-column">
+      <section class="panel card movement-guide-panel">
+        <h2>Posting guide</h2>
+        {% if movement_type == 'IN' %}
+          <ol class="movement-steps">
+            <li><span>1</span><div><strong>Verify the SKU</strong><p>Match the received item to its product record.</p></div></li>
+            <li><span>2</span><div><strong>Count units</strong><p>Enter the quantity physically received.</p></div></li>
+            <li><span>3</span><div><strong>Confirm receipt</strong><p>On-hand stock increases and the movement is logged.</p></div></li>
+          </ol>
+          <p class="movement-policy"><span data-icon="alert"></span>Record shortages or damage in the reference note.</p>
+        {% else %}
+          <ol class="movement-steps">
+            <li><span>1</span><div><strong>Verify the SKU and bin</strong><p>Pick the item from the recorded location.</p></div></li>
+            <li><span>2</span><div><strong>Confirm the count</strong><p>The requested quantity cannot exceed on-hand stock.</p></div></li>
+            <li><span>3</span><div><strong>Post the issue</strong><p>On-hand stock decreases and the movement is logged.</p></div></li>
+          </ol>
+          <p class="movement-policy"><span data-icon="alert"></span>Stock cannot go below zero. Confirm the physical count before posting.</p>
+        {% endif %}
+      </section>
+
+      <section class="panel card movement-recent-panel">
+        <div class="movement-panel-heading">
+          <div>
+            <h2>Recent {{ 'receipts' if movement_type == 'IN' else 'issues' }}</h2>
+            <p>Latest matching stock movements</p>
+          </div>
+          <a class="link-button" href="{{ url_for('history') }}">History</a>
+        </div>
+        {% if recent_transactions %}
+          <ul class="movement-recent-list">
+            {% for transaction in recent_transactions %}
+              <li>
+                <span class="recent-movement-icon {{ 'movement-in-icon' if movement_type == 'IN' else 'movement-out-icon' }}" data-icon="{{ 'receive' if movement_type == 'IN' else 'ship' }}"></span>
+                <span class="recent-movement-detail">
+                  <strong>{{ transaction.product_name }}</strong>
+                  <small>{{ transaction.sku }} · {{ transaction.timestamp.strftime('%b %d, %H:%M') }}</small>
+                </span>
+                <strong class="recent-movement-quantity">{{ '+' if movement_type == 'IN' else '−' }}{{ transaction.quantity }}</strong>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <div class="movement-recent-empty">No {{ 'receipts' if movement_type == 'IN' else 'issues' }} recorded yet.</div>
+        {% endif %}
+      </section>
+    </aside>
+  </div>
+  <script defer src="{{ url_for('static', filename='stock_movement.js', v=1) }}"></script>
 {% endblock %}

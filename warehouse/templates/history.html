@@ -1,35 +1,138 @@
 {% extends 'base.html' %}
 {% block content %}
-  <div class="page-header">
-    <h1>Transaction History</h1>
+  <div class="page-header history-page-header">
+    <div>
+      <p class="history-kicker">Inventory audit trail</p>
+      <h1>Transaction History</h1>
+      <p class="history-subtitle">Review every recorded stock receipt and issue.</p>
+    </div>
+    <div class="header-actions">
+      <a class="button secondary" href="{{ url_for('export_transactions_csv') }}" data-icon="download">Export all history</a>
+    </div>
   </div>
 
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Timestamp</th>
-          <th>SKU</th>
-          <th>Product</th>
-          <th>Type</th>
-          <th>Quantity</th>
-          <th>Note</th>
-          <th>Resulting Balance</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for item in transactions %}
-          <tr>
-            <td>{{ item.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
-            <td>{{ item.sku }}</td>
-            <td>{{ item.product_name }}</td>
-            <td>{{ item.type }}</td>
-            <td>{{ item.quantity }}</td>
-            <td>{{ item.note }}</td>
-            <td>{{ item.balance }}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="metric-grid dashboard-metrics history-summary">
+    <div class="metric-card" data-tone="blue">
+      <div class="metric-label">Total movements</div>
+      <div class="metric-value">{{ total_transactions }}</div>
+      <div class="metric-footnote">All recorded transactions</div>
+    </div>
+    <div class="metric-card" data-tone="green">
+      <div class="metric-label">Units received</div>
+      <div class="metric-value">{{ '{:,}'.format(inbound_units) }}</div>
+      <div class="metric-footnote">Across all stock-in transactions</div>
+    </div>
+    <div class="metric-card" data-tone="amber">
+      <div class="metric-label">Units issued</div>
+      <div class="metric-value">{{ '{:,}'.format(outbound_units) }}</div>
+      <div class="metric-footnote">Across all stock-out transactions</div>
+    </div>
   </div>
+
+  <form class="toolbar history-filter-toolbar" method="get" action="{{ url_for('history') }}">
+    <div class="field-group history-search-field">
+      <label for="history-search">Search history</label>
+      <input id="history-search" type="search" name="search" value="{{ current_search }}" placeholder="SKU, product, or note">
+    </div>
+    <div class="field-group history-type-field">
+      <label for="history-type">Movement</label>
+      <select id="history-type" name="movement_type">
+        <option value="">All movements</option>
+        <option value="IN" {% if current_movement_type == 'IN' %}selected{% endif %}>Stock in</option>
+        <option value="OUT" {% if current_movement_type == 'OUT' %}selected{% endif %}>Stock out</option>
+      </select>
+    </div>
+    <div class="field-group history-date-field">
+      <label for="history-from">From</label>
+      <input id="history-from" type="date" name="from_date" value="{{ current_from_date }}">
+    </div>
+    <div class="field-group history-date-field">
+      <label for="history-to">To</label>
+      <input id="history-to" type="date" name="to_date" value="{{ current_to_date }}">
+    </div>
+    <div class="history-filter-actions">
+      <button class="primary" type="submit" data-icon="filter">Apply</button>
+      {% if current_search or current_movement_type or current_from_date or current_to_date %}
+        <a class="button secondary" href="{{ url_for('history') }}">Clear</a>
+      {% endif %}
+    </div>
+  </form>
+
+  {% if filter_error %}
+    <div class="history-filter-error" role="alert">{{ filter_error }}</div>
+  {% endif %}
+
+  <div class="history-results">
+    <p>
+      Showing <strong>{{ first_result }}–{{ last_result }}</strong> of
+      <strong>{{ total_matches }}</strong> matching movements
+      {% if total_matches != total_transactions %}<span>({{ total_transactions }} total)</span>{% endif %}
+    </p>
+    <p class="history-results-hint">Results are newest first. Each balance is the on-hand quantity after that movement.</p>
+  </div>
+
+  {% if transactions %}
+    <div class="table-wrap history-table-wrap">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>Date / time</th>
+            <th>Product / SKU</th>
+            <th>Movement</th>
+            <th>Quantity</th>
+            <th>Reference / note</th>
+            <th>Balance after</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in transactions %}
+            <tr>
+              <td class="history-timestamp">{{ item.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+              <td class="history-product-cell">
+                <strong>{{ item.product_name }}</strong>
+                <span>{{ item.sku }}</span>
+              </td>
+              <td>
+                <span class="history-movement-badge {{ 'history-in' if item.type == 'IN' else 'history-out' }}" data-icon="{{ 'receive' if item.type == 'IN' else 'ship' }}">
+                  {{ 'Stock in' if item.type == 'IN' else 'Stock out' }}
+                </span>
+              </td>
+              <td class="history-quantity">{{ '+' if item.type == 'IN' else '−' }}{{ item.quantity }}</td>
+              <td class="history-note">{{ item.note or '—' }}</td>
+              <td class="history-balance">{{ item.balance }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <section class="history-empty">
+      <span class="history-empty-icon" data-icon="history"></span>
+      <h2>{% if total_transactions %}No matching movements{% else %}No stock movements yet{% endif %}</h2>
+      {% if total_transactions %}
+        <p>Try adjusting the search, movement type, or date range.</p>
+        <a class="button secondary" href="{{ url_for('history') }}">Clear filters</a>
+      {% else %}
+        <p>Stock receipts and issues will appear here after they are posted.</p>
+        <div class="history-empty-actions">
+          <a class="button secondary" href="{{ url_for('stock_in') }}" data-icon="receive">Receive stock</a>
+          <a class="button primary" href="{{ url_for('stock_out') }}" data-icon="ship">Issue stock</a>
+        </div>
+      {% endif %}
+    </section>
+  {% endif %}
+
+  {% if page_count > 1 %}
+    <nav class="history-pagination" aria-label="History pages">
+      <span>Page {{ page }} of {{ page_count }}</span>
+      <div>
+        {% if page > 1 %}
+          <a class="button secondary" href="{{ url_for('history', page=page - 1, search=current_search, movement_type=current_movement_type, from_date=current_from_date, to_date=current_to_date) }}">Previous</a>
+        {% endif %}
+        {% if page < page_count %}
+          <a class="button secondary" href="{{ url_for('history', page=page + 1, search=current_search, movement_type=current_movement_type, from_date=current_from_date, to_date=current_to_date) }}">Next</a>
+        {% endif %}
+      </div>
+    </nav>
+  {% endif %}
 {% endblock %}
