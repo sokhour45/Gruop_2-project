@@ -1,94 +1,197 @@
 {% extends 'base.html' %}
 {% block content %}
-  <div class="page-header">
-    <h1>Dashboard</h1>
+  <div class="page-header dashboard-header">
+    <div>
+      <p class="dashboard-kicker">Warehouse overview</p>
+      <h1>Welcome back, {{ current_user.username }}</h1>
+      <p class="dashboard-subtitle">A live snapshot of your inventory and activity.</p>
+    </div>
+    <div class="dashboard-actions">
+      <a href="{{ url_for('stock_in') }}" class="button secondary" data-icon="receive">Receive stock</a>
+      <a href="{{ url_for('stock_out') }}" class="button primary" data-icon="ship">Issue stock</a>
+      <a href="{{ url_for('add_product') }}" class="button" data-icon="plus">Add product</a>
+    </div>
   </div>
 
-  <div class="metric-grid">
-    <div class="metric-card">
-      <div class="metric-label">Total Products</div>
+  <div class="metric-grid dashboard-metrics">
+    <div class="metric-card" data-tone="blue">
+      <div class="metric-label">Total SKUs</div>
       <div class="metric-value">{{ total_products }}</div>
+      <div class="metric-footnote">Active products in your catalog</div>
     </div>
-    <div class="metric-card">
-      <div class="metric-label">Total Stock Value</div>
+    <div class="metric-card" data-tone="violet">
+      <div class="metric-label">Units on hand</div>
+      <div class="metric-value">{{ '{:,}'.format(total_units) }}</div>
+      <div class="metric-footnote">Across all products and locations</div>
+    </div>
+    <div class="metric-card" data-tone="green">
+      <div class="metric-label">Inventory value</div>
       <div class="metric-value">${{ '{:,.2f}'.format(stock_value) }}</div>
+      <div class="metric-footnote">Based on current unit prices</div>
     </div>
-    <div class="metric-card">
-      <div class="metric-label">Low-Stock Items</div>
+    <a class="metric-card metric-card-link" data-tone="amber" href="{{ url_for('products', low_stock=1) }}">
+      <div class="metric-label">Reorder alerts</div>
       <div class="metric-value">{{ low_stock_count }}</div>
-    </div>
+      <div class="metric-footnote">At or below reorder level · View items</div>
+    </a>
+    <a class="metric-card metric-card-link" data-tone="red" href="{{ url_for('products', out_of_stock=1) }}">
+      <div class="metric-label">Out of stock</div>
+      <div class="metric-value">{{ out_of_stock_count }}</div>
+      <div class="metric-footnote">Items with zero quantity · Review</div>
+    </a>
   </div>
 
-  <div class="dashboard-panels">
-    <div class="panel card">
-      <h3>Products by Category</h3>
+  <div class="dashboard-overview-grid">
+    <section class="panel card dashboard-panel">
+      <div class="dashboard-panel-heading">
+        <div>
+          <h3>Products by category</h3>
+          <p class="panel-subtitle">Catalog mix by number of SKUs</p>
+        </div>
+        <a class="link-button" href="{{ url_for('products') }}">View products</a>
+      </div>
       <div class="chart-block">
         {% for category, count in category_totals.items() %}
           <div class="bar-row">
-            <span>{{ category }}</span>
-            <div class="bar-track">
-              <div class="bar-fill" style="width: {{ (count / (category_totals.values()|list|max if category_totals else 1)) * 100 }}%"></div>
+            <span class="bar-label" title="{{ category }}">{{ category }}</span>
+            <div class="bar-track" role="img" aria-label="{{ category }}: {{ count }} products">
+              <div class="bar-fill" style="width: {{ (count / category_max * 100) if category_max else 0 }}%"></div>
             </div>
             <strong>{{ count }}</strong>
           </div>
         {% else %}
-          <p class="muted">No products available.</p>
+          <div class="dashboard-empty">
+            <p>No products yet. Add your first product to see your category mix.</p>
+            <a class="link-button" href="{{ url_for('add_product') }}">Add a product</a>
+          </div>
         {% endfor %}
       </div>
-    </div>
+    </section>
 
-    <div class="panel card">
-      <h3>Low-Stock Alerts</h3>
-      {% if low_products %}
-        <table>
-          <thead>
-            <tr>
-              <th>SKU</th>
-              <th>Name</th>
-              <th>Stock</th>
-              <th>Reorder</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for product in low_products %}
-              <tr class="alert-row">
-                <td>{{ product.sku }}</td>
-                <td>{{ product.name }}</td>
-                <td>{{ product.quantity }}</td>
-                <td>{{ product.reorder_level }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      {% else %}
-        <p class="muted">No low-stock items.</p>
-      {% endif %}
-    </div>
+    <section class="panel card dashboard-panel">
+      <div class="dashboard-panel-heading">
+        <div>
+          <h3>Stock health</h3>
+          <p class="panel-subtitle">Products compared with reorder levels</p>
+        </div>
+        <a class="link-button" href="{{ url_for('products') }}">All stock</a>
+      </div>
+      <div
+        class="stock-health-bar"
+        role="img"
+        aria-label="Stock health: {{ stock_health.healthy }} healthy, {{ stock_health.reorder }} at reorder level, {{ stock_health.out_of_stock }} out of stock"
+      >
+        <span class="health-segment healthy" style="width: {{ stock_health.healthy_percent }}%"></span>
+        <span class="health-segment reorder" style="width: {{ stock_health.reorder_percent }}%"></span>
+        <span class="health-segment out-of-stock" style="width: {{ stock_health.out_of_stock_percent }}%"></span>
+      </div>
+      <ul class="health-legend">
+        <li><span class="health-dot healthy"></span><span>Healthy</span><strong>{{ stock_health.healthy }}</strong></li>
+        <li><span class="health-dot reorder"></span><span>At/below reorder</span><strong>{{ stock_health.reorder }}</strong></li>
+        <li><span class="health-dot out-of-stock"></span><span>Out of stock</span><strong>{{ stock_health.out_of_stock }}</strong></li>
+      </ul>
+    </section>
   </div>
 
-  <div class="panel card recent-panel">
-    <h3>Recent Transactions</h3>
-    <table>
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>SKU</th>
-          <th>Type</th>
-          <th>Qty</th>
-          <th>Balance</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for txn in recent_transactions %}
-          <tr>
-            <td>{{ txn.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
-            <td>{{ txn.sku }}</td>
-            <td>{{ txn.type }}</td>
-            <td>{{ txn.quantity }}</td>
-            <td>{{ txn.balance }}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="dashboard-activity-grid">
+    <section class="panel card dashboard-panel">
+      <div class="dashboard-panel-heading">
+        <div>
+          <h3>Reorder queue</h3>
+          <p class="panel-subtitle">Items that need replenishment attention</p>
+        </div>
+        {% if low_stock_count %}
+          <a class="link-button" href="{{ url_for('products', low_stock=1) }}">View all {{ low_stock_count }}</a>
+        {% endif %}
+      </div>
+      {% if low_products %}
+        <div class="table-wrap dashboard-table">
+          <table>
+            <thead>
+              <tr>
+                <th>SKU / Product</th>
+                <th>Location</th>
+                <th>On hand</th>
+                <th>Reorder at</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for product in low_products[:5] %}
+                <tr class="{% if product.quantity == 0 %}alert-row{% endif %}">
+                  <td>
+                    <strong>{{ product.name }}</strong>
+                    <span class="table-secondary">{{ product.sku }}</span>
+                  </td>
+                  <td>{{ product.location or '—' }}</td>
+                  <td>
+                    <span class="stock-value {% if product.quantity == 0 %}stock-value-empty{% endif %}">
+                      {{ product.quantity }} {{ product.unit }}
+                    </span>
+                  </td>
+                  <td>{{ product.reorder_level }} {{ product.unit }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if low_stock_count > 5 %}
+          <p class="table-footnote">Showing 5 of {{ low_stock_count }} items needing attention.</p>
+        {% endif %}
+      {% else %}
+        <div class="dashboard-empty success-empty">
+          <span class="empty-check" data-icon="check"></span>
+          <div>
+            <strong>Stock levels look good</strong>
+            <p>No products are at or below their reorder point.</p>
+          </div>
+        </div>
+      {% endif %}
+    </section>
+
+    <section class="panel card dashboard-panel">
+      <div class="dashboard-panel-heading">
+        <div>
+          <h3>Recent activity</h3>
+          <p class="panel-subtitle">Latest stock movements</p>
+        </div>
+        <a class="link-button" href="{{ url_for('history') }}">Full history</a>
+      </div>
+      {% if recent_transactions %}
+        <div class="table-wrap dashboard-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>Movement</th>
+                <th>Qty</th>
+                <th>Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for txn in recent_transactions %}
+                <tr>
+                  <td>
+                    <strong>{{ txn.product_name }}</strong>
+                    <span class="table-secondary">{{ txn.sku }}</span>
+                  </td>
+                  <td>
+                    <span class="movement-chip movement-{{ txn.type|lower }}" data-icon="{{ 'receive' if txn.type == 'IN' else 'ship' }}">
+                      {{ 'Stock in' if txn.type == 'IN' else 'Stock out' }}
+                    </span>
+                  </td>
+                  <td>{{ txn.quantity }}</td>
+                  <td class="activity-time">{{ txn.timestamp.strftime('%b %d, %H:%M') }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="dashboard-empty">
+          <p>No stock movements recorded yet.</p>
+          <a class="link-button" href="{{ url_for('stock_in') }}">Record your first receipt</a>
+        </div>
+      {% endif %}
+    </section>
   </div>
 {% endblock %}

@@ -34,6 +34,16 @@ class _RecordingCursor:
 
 
 class WarehouseDatabaseTests(unittest.TestCase):
+    def make_app(self, directory, database):
+        import_database = Path(directory) / "app-import.db"
+        import_url = f"sqlite:///{import_database.as_posix()}"
+        with patch.dict(os.environ, {"WAREHOUSE_DATABASE_URL": import_url}):
+            from warehouse.web_app import create_app
+
+        app = create_app(database)
+        app.config.update(TESTING=True)
+        return app
+
     def test_postgres_connection_translates_sqlite_placeholders_and_locks(self):
         raw_connection = _RecordingConnection()
         connection = _Connection(raw_connection, postgres=True)
@@ -61,14 +71,8 @@ class WarehouseDatabaseTests(unittest.TestCase):
 
     def test_account_creation_and_login_use_configured_database(self):
         with tempfile.TemporaryDirectory() as directory:
-            import_database = Path(directory) / "app-import.db"
-            import_url = f"sqlite:///{import_database.as_posix()}"
-            with patch.dict(os.environ, {"WAREHOUSE_DATABASE_URL": import_url}):
-                from warehouse.web_app import create_app
-
             database = WarehouseDB(Path(directory) / "warehouse-test.db")
-            app = create_app(database)
-            app.config.update(TESTING=True)
+            app = self.make_app(directory, database)
             client = app.test_client()
 
             response = client.post(
@@ -98,6 +102,71 @@ class WarehouseDatabaseTests(unittest.TestCase):
             employee = database.authenticate_user("warehouse-operator", "another-test-password")
             self.assertIsNotNone(employee)
             self.assertEqual(employee.role, "employee")
+
+    def test_dashboard_summarizes_inventory_and_recent_activity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = WarehouseDB(Path(directory) / "warehouse-test.db")
+            database.seed_sample_data()
+            database.record_movement(1, "IN", 1, "Dashboard test receipt")
+            client = self.make_app(directory, database).test_client()
+
+            client.post(
+                "/login",
+                data={
+                    "username": "dashboard-admin",
+                    "password": "secure-test-password",
+                    "confirm_password": "secure-test-password",
+                },
+            )
+            response = client.get("/dashboard")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(b"Units on hand", response.data)
+            self.assertIn(b"35", response.data)
+            self.assertIn(b"Stock health", response.data)
+            self.assertIn(b"Stock in", response.data)
+            self.assertIn(b"Ballpoint Pens", response.data)
+
+    def test_dashboard_renders_empty_inventory_without_dividing_by_zero(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = WarehouseDB(Path(directory) / "warehouse-test.db")
+            database.create_user("empty-dashboard-admin", "secure-test-password", "admin")
+            client = self.make_app(directory, database).test_client()
+
+            client.post(
+                "/login",
+                data={
+                    "username": "empty-dashboard-admin",
+                    "password": "secure-test-password",
+                },
+            )
+            response = client.get("/dashboard")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(b"No products yet", response.data)
+            self.assertIn(b"Stock levels look good", response.data)
+
+    def test_out_of_stock_filter_shows_only_zero_quantity_products(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = WarehouseDB(Path(directory) / "warehouse-test.db")
+            database.seed_sample_data()
+            database.record_movement(1, "OUT", 12, "Test depletion")
+            database.create_user("stock-filter-admin", "secure-test-password", "admin")
+            client = self.make_app(directory, database).test_client()
+
+            client.post(
+                "/login",
+                data={
+                    "username": "stock-filter-admin",
+                    "password": "secure-test-password",
+                },
+            )
+            response = client.get("/products?out_of_stock=1")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(b"Ballpoint Pens", response.data)
+            self.assertNotIn(b"Shipping Carton", response.data)
+            self.assertIn(b"Out of stock only", response.data)
 
     def test_sqlite_database_keeps_product_and_movement_operations(self):
         with tempfile.TemporaryDirectory() as directory:

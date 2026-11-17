@@ -142,17 +142,39 @@ def create_app(database: WarehouseDB | None = None) -> Flask:
     @login_required
     def dashboard():
         total_products, stock_value, low_stock_count = db.dashboard_stats()
+        products = db.list_products()
         categories = {}
-        for product in db.list_products():
+        for product in products:
             categories[product.category] = categories.get(product.category, 0) + 1
+        out_of_stock_count = sum(product.quantity == 0 for product in products)
+        reorder_count = sum(
+            0 < product.quantity <= product.reorder_level for product in products
+        )
+        healthy_count = total_products - out_of_stock_count - reorder_count
+        product_count = len(products)
+
+        def percent(count: int) -> int:
+            return round(count / product_count * 100) if product_count else 0
+
         return render_template(
             "dashboard.html",
             total_products=total_products,
             stock_value=stock_value,
             low_stock_count=low_stock_count,
+            total_units=sum(product.quantity for product in products),
+            out_of_stock_count=out_of_stock_count,
+            stock_health={
+                "healthy": healthy_count,
+                "healthy_percent": percent(healthy_count),
+                "reorder": reorder_count,
+                "reorder_percent": percent(reorder_count),
+                "out_of_stock": out_of_stock_count,
+                "out_of_stock_percent": percent(out_of_stock_count),
+            },
             category_totals=categories,
+            category_max=max(categories.values(), default=0),
             low_products=db.list_products(low_stock=True),
-            recent_transactions=db.list_transactions(limit=12),
+            recent_transactions=db.list_transactions(limit=8),
             page_title="Dashboard",
         )
 
@@ -161,8 +183,11 @@ def create_app(database: WarehouseDB | None = None) -> Flask:
     def products():
         search = request.args.get("search", "").strip()
         low_stock_only = request.args.get("low_stock", "") == "1"
+        out_of_stock_only = request.args.get("out_of_stock", "") == "1"
         category = request.args.get("category", "").strip()
         product_list = db.list_products(search=search, low_stock=low_stock_only, category=category)
+        if out_of_stock_only:
+            product_list = [product for product in product_list if product.quantity == 0]
         categories = sorted({product.category for product in db.list_products()})
         return render_template(
             "products.html",
@@ -171,6 +196,7 @@ def create_app(database: WarehouseDB | None = None) -> Flask:
             current_search=search,
             current_category=category,
             low_stock_only=low_stock_only,
+            out_of_stock_only=out_of_stock_only,
             page_title="Products",
         )
 

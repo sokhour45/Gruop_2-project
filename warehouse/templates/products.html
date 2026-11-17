@@ -25,6 +25,10 @@
       <input type="checkbox" name="low_stock" value="1" {% if low_stock_only %}checked{% endif %}>
       Low stock only
     </label>
+    <label class="checkbox-row">
+      <input type="checkbox" name="out_of_stock" value="1" {% if out_of_stock_only %}checked{% endif %}>
+      Out of stock only
+    </label>
     <button type="submit">Apply</button>
   </form>
 
