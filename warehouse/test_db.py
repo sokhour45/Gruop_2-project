@@ -11,8 +11,23 @@ class _RecordingConnection:
     def __init__(self):
         self.statement = None
         self.parameters = None
+        self.recording_cursor = _RecordingCursor()
 
     def execute(self, statement, parameters):
+        self.statement = statement
+        self.parameters = parameters
+        return self
+
+    def cursor(self):
+        return self.recording_cursor
+
+
+class _RecordingCursor:
+    def __init__(self):
+        self.statement = None
+        self.parameters = None
+
+    def executemany(self, statement, parameters):
         self.statement = statement
         self.parameters = parameters
         return self
@@ -30,6 +45,19 @@ class WarehouseDatabaseTests(unittest.TestCase):
 
         self.assertEqual(raw_connection.statement, "BEGIN; SELECT * FROM users WHERE username = %s")
         self.assertEqual(raw_connection.parameters, ("operator",))
+
+    def test_postgres_executemany_uses_a_cursor(self):
+        raw_connection = _RecordingConnection()
+        connection = _Connection(raw_connection, postgres=True)
+        rows = [("SKU-1",), ("SKU-2",)]
+
+        connection.executemany("INSERT INTO products (sku) VALUES (?)", rows)
+
+        self.assertEqual(
+            raw_connection.recording_cursor.statement,
+            "INSERT INTO products (sku) VALUES (%s)",
+        )
+        self.assertEqual(raw_connection.recording_cursor.parameters, rows)
 
     def test_account_creation_and_login_use_configured_database(self):
         with tempfile.TemporaryDirectory() as directory:

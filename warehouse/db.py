@@ -37,7 +37,10 @@ class _Connection:
         return self._connection.execute(self._sql(statement), tuple(parameters))
 
     def executemany(self, statement: str, parameters: Iterable[Iterable[object]]):
-        return self._connection.executemany(self._sql(statement), parameters)
+        statement = self._sql(statement)
+        if self._postgres:
+            return self._connection.cursor().executemany(statement, parameters)
+        return self._connection.executemany(statement, parameters)
 
     def executescript(self, script: str):
         if self._postgres:
