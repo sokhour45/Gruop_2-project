@@ -365,6 +365,116 @@ class WarehouseDatabaseTests(unittest.TestCase):
             self.assertEqual(protected_response.status_code, 302)
             self.assertEqual(protected_response.headers["Location"], "/dashboard")
 
+    def test_employee_stock_request_requires_admin_approval(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = WarehouseDB(Path(directory) / "warehouse-test.db")
+            database.seed_sample_data()
+            database.create_user("approval-admin", "admin-test-password", "admin")
+            database.create_user("employee-user", "employee-test-password", "employee")
+            client = self.make_app(directory, database).test_client()
+            client.post(
+                "/login",
+                data={
+                    "username": "employee-user",
+                    "password": "employee-test-password",
+                },
+            )
+            employee = database.authenticate_user(
+                "employee-user", "employee-test-password"
+            )
+            response = client.post(
+                "/stock-in",
+                data={"product_id": "1", "quantity": "3", "note": "PO 991"},
+            )
+
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(database.get_product(1).quantity, 12)
+            pending = database.list_movement_requests("PENDING")
+            self.assertEqual(len(pending), 1)
+            self.assertEqual(pending[0]["submitted_by"], employee.id)
+            approval_client = self.make_app(directory, database).test_client()
+            approval_client.post(
+                "/login",
+                data={
+                    "username": "approval-admin",
+                    "password": "admin-test-password",
+                },
+            )
+            approval_response = approval_client.post(
+                f"/approvals/{pending[0]['id']}/approve"
+            )
+
+            self.assertEqual(approval_response.status_code, 302)
+            self.assertEqual(database.get_product(1).quantity, 15)
+            approved = database.list_movement_requests("APPROVED")
+            self.assertEqual(len(approved), 1)
+
+    def test_manager_stock_request_is_not_posted_until_approved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = WarehouseDB(Path(directory) / "warehouse-test.db")
+            database.seed_sample_data()
+            database.create_user("manager-user", "manager-test-password", "manager")
+            client = self.make_app(directory, database).test_client()
+            client.post(
+                "/login",
+                data={
+                    "username": "manager-user",
+                    "password": "manager-test-password",
+                },
+            )
+
+            stock_in = client.post(
+                "/stock-in",
+                data={"product_id": "1", "quantity": "4", "note": "Delivery 44"},
+            )
+            stock_out = client.post(
+                "/stock-out",
+                data={"product_id": "1", "quantity": "3", "note": "Order 44"},
+            )
+
+            self.assertEqual(stock_in.status_code, 302)
+            self.assertEqual(stock_out.status_code, 302)
+            self.assertEqual(database.get_product(1).quantity, 12)
+            pending = database.list_movement_requests("PENDING")
+            self.assertEqual(len(pending), 2)
+            self.assertIn("IN", {request["type"] for request in pending})
+            self.assertIn("OUT", {request["type"] for request in pending})
+
+    def test_admin_approval_page_rejects_pending_request(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = WarehouseDB(Path(directory) / "warehouse.db")
+            database.create_user("approval-admin", "secure-test-password", "admin")
+            database.seed_sample_data()
+            database.create_user("employee-user", "employee-test-password", "employee")
+            employee = database.authenticate_user(
+                "employee-user", "employee-test-password"
+            )
+            request_id = database.create_movement_request(
+                1, "OUT", 2, "Order 77", employee.id, employee.username
+            )
+            client = self.make_app(directory, database).test_client()
+            client.post(
+                "/login",
+                data={
+                    "username": "approval-admin",
+                    "password": "secure-test-password",
+                },
+            )
+
+            page = client.get("/approvals")
+            reject_response = client.post(
+                f"/approvals/{request_id}/reject"
+            )
+
+            self.assertEqual(page.status_code, 200)
+            self.assertIn(b"Order 77", page.data)
+            self.assertIn(b"Stock movement approvals", page.data)
+            self.assertEqual(reject_response.status_code, 302)
+            self.assertEqual(database.get_product(1).quantity, 12)
+            rejected = database.list_movement_requests("REJECTED")
+            self.assertEqual(len(rejected), 1)
+            self.assertEqual(rejected[0]["id"], request_id)
+
     def test_sqlite_database_keeps_product_and_movement_operations(self):
         with tempfile.TemporaryDirectory() as directory:
             database = WarehouseDB(Path(directory) / "warehouse-test.db")

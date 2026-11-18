@@ -23,6 +23,12 @@
             <a href="{{ url_for('history') }}" class="nav-link {% if request.path == url_for('history') %}active{% endif %}" data-icon="history">History</a>
             <a href="{{ url_for('reports_page') }}" class="nav-link {% if request.path == url_for('reports_page') %}active{% endif %}" data-icon="chart">Reports</a>
             {% if current_user.role == 'admin' %}
+              <a href="{{ url_for('approvals') }}" class="nav-link {% if request.path == url_for('approvals') %}active{% endif %}" data-icon="alert">
+                Approvals
+                {% if pending_stock_count %}
+                  <span class="nav-count">{{ pending_stock_count }}</span>
+                {% endif %}
+              </a>
               <a href="{{ url_for('users') }}" class="nav-link {% if request.path == url_for('users') %}active{% endif %}" data-icon="users">User Accounts</a>
             {% endif %}
           </nav>

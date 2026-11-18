@@ -1,0 +1,94 @@
+{% extends 'base.html' %}
+{% block content %}
+  <div class="page-header approvals-page-header">
+    <div>
+      <p class="approvals-kicker">Stock control</p>
+      <h1>Stock movement approvals</h1>
+      <p class="approvals-subtitle">Review employee and manager requests before inventory changes.</p>
+    </div>
+  </div>
+
+  <section class="panel card approvals-panel">
+    <div class="approvals-panel-heading">
+      <div>
+        <h2>Pending requests</h2>
+        <p>Approved requests post immediately to stock and movement history.</p>
+      </div>
+      <span class="approvals-count">{{ requests|length }} pending</span>
+    </div>
+
+    {% if requests %}
+      <div class="approvals-list">
+        {% for request in requests %}
+          <article class="approval-request">
+            <span class="approval-type-icon {{ 'approval-in' if request.type == 'IN' else 'approval-out' }}" data-icon="{{ 'receive' if request.type == 'IN' else 'ship' }}"></span>
+            <div class="approval-request-main">
+              <div class="approval-request-heading">
+                <strong>{{ request.product_name }}</strong>
+                <span class="approval-movement-badge {{ 'approval-in' if request.type == 'IN' else 'approval-out' }}">
+                  {{ 'Stock in' if request.type == 'IN' else 'Stock out' }}
+                </span>
+              </div>
+              <span class="approval-request-meta">SKU {{ request.sku }} · {{ request.quantity }} units · Submitted by {{ request.submitted_by_name }}</span>
+              <p>{{ request.note or 'No reference or note provided.' }}</p>
+              <span class="approval-request-time">Submitted {{ request.created_at }}</span>
+            </div>
+            <div class="approval-actions">
+              <form method="post" action="{{ url_for('reject_movement', request_id=request.id) }}">
+                <button type="submit" class="approval-reject" data-icon="delete" onclick="return confirm('Reject this stock movement request?');">Reject</button>
+              </form>
+              <form method="post" action="{{ url_for('approve_movement', request_id=request.id) }}">
+                <button type="submit" class="primary" data-icon="check">Approve & post</button>
+              </form>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="approvals-empty">
+        <span data-icon="check"></span>
+        <strong>No stock movements are waiting for approval.</strong>
+      </div>
+    {% endif %}
+  </section>
+
+  <div class="approval-history-grid">
+    <section class="panel card approvals-history-panel">
+      <h2>Recently approved</h2>
+      {% if approved_requests %}
+        <ul>
+          {% for request in approved_requests %}
+            <li>
+              <span>
+                <strong>{{ request.product_name }}</strong>
+                <small>{{ 'Stock in' if request.type == 'IN' else 'Stock out' }} · {{ request.quantity }} units · by {{ request.submitted_by_name }}</small>
+              </span>
+              <strong class="approval-reviewer">✓ {{ request.reviewer_name }}</strong>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="approvals-history-empty">No approved requests yet.</p>
+      {% endif %}
+    </section>
+
+    <section class="panel card approvals-history-panel">
+      <h2>Recently rejected</h2>
+      {% if rejected_requests %}
+        <ul>
+          {% for request in rejected_requests %}
+            <li>
+              <span>
+                <strong>{{ request.product_name }}</strong>
+                <small>{{ 'Stock in' if request.type == 'IN' else 'Stock out' }} · {{ request.quantity }} units · by {{ request.submitted_by_name }}</small>
+              </span>
+              <strong class="approval-reviewer approval-reviewer-rejected">× {{ request.reviewer_name }}</strong>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="approvals-history-empty">No rejected requests yet.</p>
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}

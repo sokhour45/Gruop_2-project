@@ -52,7 +52,11 @@
       <div class="movement-panel-heading">
         <div>
           <h2>{{ 'Receive inventory' if movement_type == 'IN' else 'Issue inventory' }}</h2>
-          <p>Choose a product, enter a quantity, and record a note for the stock history.</p>
+          {% if approval_required %}
+            <p>Submit for administrator approval. Stock will not change until the request is approved.</p>
+          {% else %}
+            <p>Choose a product, enter a quantity, and record a note for the stock history.</p>
+          {% endif %}
         </div>
         <span class="movement-type-badge {{ 'inbound-badge' if movement_type == 'IN' else 'outbound-badge' }}">
           {{ 'Stock receipt' if movement_type == 'IN' else 'Stock issue' }}
@@ -158,9 +162,19 @@
         </div>
 
         <div class="movement-form-footer">
-          <p>Posting updates the product balance and creates a history record.</p>
+          <p>
+            {% if approval_required %}
+              Submitting creates a pending request; an administrator must approve it before stock changes.
+            {% else %}
+              Posting updates the product balance and creates a history record.
+            {% endif %}
+          </p>
           <button type="submit" class="primary" data-icon="{{ 'receive' if movement_type == 'IN' else 'ship' }}">
-            {{ 'Confirm stock in' if movement_type == 'IN' else 'Confirm stock out' }}
+            {% if approval_required %}
+              {{ 'Submit stock in for approval' if movement_type == 'IN' else 'Submit stock out for approval' }}
+            {% else %}
+              {{ 'Confirm stock in' if movement_type == 'IN' else 'Confirm stock out' }}
+            {% endif %}
           </button>
         </div>
       </form>

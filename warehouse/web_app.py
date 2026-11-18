@@ -78,6 +78,11 @@ def create_app(database: WarehouseDB | None = None) -> Flask:
             "CATEGORIES": CATEGORIES,
             "UNITS": UNITS,
             "user_roles": ("admin", "manager", "employee"),
+            "pending_stock_count": (
+                db.count_pending_movement_requests()
+                if current_user() and current_user().get("role") == "admin"
+                else 0
+            ),
         }
 
     @app.route("/")
@@ -323,6 +328,7 @@ def create_app(database: WarehouseDB | None = None) -> Flask:
         form_error: str = "",
     ):
         products = db.list_products()
+        approval_required = current_user().get("role") in {"employee", "manager"}
         is_inbound = movement_type == "IN"
         movement_title = "Stock In" if is_inbound else "Stock Out"
         recent_transactions = db.list_transactions(limit=5, movement_type=movement_type)
@@ -349,6 +355,7 @@ def create_app(database: WarehouseDB | None = None) -> Flask:
                 product.quantity <= product.reorder_level for product in products
             ),
             recent_transactions=recent_transactions,
+            approval_required=approval_required,
             page_title=movement_title,
         )
 
@@ -375,6 +382,18 @@ def create_app(database: WarehouseDB | None = None) -> Flask:
                     "IN", product, quantity, note, errors=errors
                 )
             try:
+                user = current_user()
+                if user.get("role") in {"employee", "manager"}:
+                    db.create_movement_request(
+                        product.id,
+                        "IN",
+                        valid_quantity,
+                        note,
+                        user["id"],
+                        user["username"],
+                    )
+                    flash("Stock-in request submitted. Waiting for administrator approval.", "success")
+                    return redirect(url_for("stock_in"))
                 balance = db.record_movement(product.id, "IN", valid_quantity, note)
             except (LookupError, ValueError) as error:
                 current_product = db.get_product(product.id)
@@ -412,6 +431,18 @@ def create_app(database: WarehouseDB | None = None) -> Flask:
                     "OUT", product, quantity, note, errors=errors
                 )
             try:
+                user = current_user()
+                if user.get("role") in {"employee", "manager"}:
+                    db.create_movement_request(
+                        product.id,
+                        "OUT",
+                        valid_quantity,
+                        note,
+                        user["id"],
+                        user["username"],
+                    )
+                    flash("Stock-out request submitted. Waiting for administrator approval.", "success")
+                    return redirect(url_for("stock_out"))
                 balance = db.record_movement(product.id, "OUT", valid_quantity, note)
             except (LookupError, ValueError) as error:
                 current_product = db.get_product(product.id)
@@ -425,6 +456,42 @@ def create_app(database: WarehouseDB | None = None) -> Flask:
             flash(f"Stock movement saved. New balance: {balance}.", "success")
             return redirect(url_for("stock_out"))
         return render_stock_movement("OUT")
+
+    @app.route("/approvals")
+    @login_required
+    @role_required("admin")
+    def approvals():
+        return render_template(
+            "approvals.html",
+            requests=db.list_movement_requests("PENDING"),
+            approved_requests=db.list_movement_requests("APPROVED")[:10],
+            rejected_requests=db.list_movement_requests("REJECTED")[:10],
+            page_title="Stock Approvals",
+        )
+
+    @app.route("/approvals/<int:request_id>/approve", methods=["POST"])
+    @login_required
+    @role_required("admin")
+    def approve_movement(request_id: int):
+        user = current_user()
+        try:
+            db.approve_movement_request(request_id, user["id"], user["username"])
+            flash("Stock movement approved and posted.", "success")
+        except (LookupError, ValueError) as error:
+            flash(str(error), "error")
+        return redirect(url_for("approvals"))
+
+    @app.route("/approvals/<int:request_id>/reject", methods=["POST"])
+    @login_required
+    @role_required("admin")
+    def reject_movement(request_id: int):
+        user = current_user()
+        try:
+            db.reject_movement_request(request_id, user["id"], user["username"])
+            flash("Stock movement request rejected.", "success")
+        except (LookupError, ValueError) as error:
+            flash(str(error), "error")
+        return redirect(url_for("approvals"))
 
     @app.route("/history")
     @login_required
